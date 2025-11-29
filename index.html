@@ -1,292 +1,279 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Strange Mobile AR</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-
+    <title>Christmas AR Demo</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        :root { --neon-orange: #ff9d00; }
-        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
-        
-        /* 视频背景层 */
-        #cam-video {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            object-fit: cover;
-            z-index: -1;
-            transform: scaleX(-1); /* 后置摄像头通常不需要镜像，但如果是前置则需要 */
-        }
-
-        /* 3D 画布层 */
-        #canvas-container {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            z-index: 1;
-        }
-
-        /* iOS 权限引导 UI */
-        #start-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 999;
-            color: var(--neon-orange);
-            text-align: center;
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        .btn {
-            border: 2px solid var(--neon-orange);
-            background: rgba(255, 157, 0, 0.1);
-            color: var(--neon-orange);
-            padding: 15px 30px;
-            font-size: 18px;
-            margin-top: 20px;
-            border-radius: 5px;
-            text-transform: uppercase;
-            font-weight: bold;
-            box-shadow: 0 0 15px var(--neon-orange);
-            transition: 0.2s;
-        }
-        .btn:active { background: var(--neon-orange); color: #000; }
-
-        #hud {
+        body { margin: 0; background-color: #000; overflow: hidden; }
+        /* A simple overlay instruction */
+        #overlay {
             position: absolute;
-            bottom: 30px; left: 20px;
-            color: rgba(255,255,255,0.7);
-            font-size: 12px;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: sans-serif;
             pointer-events: none;
-            z-index: 10;
+            z-index: 1;
+            text-shadow: 1px 1px 2px black;
         }
     </style>
 </head>
 <body>
 
-    <video id="cam-video" autoplay playsinline muted></video>
-    
-    <div id="canvas-container"></div>
+    <div id="overlay">Find a floor area and Tap to place the Tree</div>
 
-    <div id="start-screen">
-        <h1 style="text-shadow: 0 0 20px orange;">SANCTUM<br>MOBILE</h1>
-        <p>需要访问摄像头与陀螺仪</p>
-        <button class="btn" onclick="requestPermissions()">启动法阵</button>
-    </div>
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+        import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
 
-    <div id="hud">
-        GYRO: WAITING...<br>
-        TOUCH: ENABLED
-    </div>
-
-    <script>
-        // --- 核心变量 ---
-        let camera, scene, renderer, composer;
-        let shieldGroup;
-        let videoElement = document.getElementById('cam-video');
+        let container;
+        let camera, scene, renderer;
+        let controller;
         
-        // 交互状态
-        let targetScale = 0; // 默认隐藏，点击屏幕出现
-        let currentScale = 0;
-        let baseRotation = { x: 0, y: 0 };
-        
-        // 陀螺仪数据
-        let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
+        let reticle; // The visual marker for where to place the object
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
 
-        // --- 1. iOS 权限处理 (最关键的一步) ---
-        async function requestPermissions() {
-            const startBtn = document.querySelector('.btn');
-            startBtn.innerText = "正在链接...";
+        let treeGroup; // Will hold our Christmas Tree
+        let particles; // Snow system
+        let ornaments = []; // Array to store lights for blinking animation
 
-            try {
-                // 1. 请求摄像头 (后置)
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: 'environment', // 强制后置
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }, 
-                    audio: false 
-                });
-                videoElement.srcObject = stream;
-                // 修正镜像问题：后置摄像头不应该镜像，CSS中transform去掉
-                videoElement.style.transform = 'none';
+        init();
+        animate();
 
-                // 2. 请求陀螺仪 (iOS 13+ 特有)
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    const response = await DeviceOrientationEvent.requestPermission();
-                    if (response === 'granted') {
-                        window.addEventListener('deviceorientation', handleOrientation);
-                    } else {
-                        alert("需要陀螺仪权限来控制角度！");
-                    }
-                } else {
-                    // 非 iOS 13+ 或安卓
-                    window.addEventListener('deviceorientation', handleOrientation);
-                }
+        function init() {
+            container = document.createElement('div');
+            document.body.appendChild(container);
 
-                // 启动 3D 场景
-                initThreeJS();
-                document.getElementById('start-screen').style.display = 'none';
-                
-                // 默认展开魔法阵
-                targetScale = 1;
-
-            } catch (err) {
-                alert("无法访问摄像头: " + err.message + "\n请确保使用 HTTPS 或 localhost");
-                startBtn.innerText = "重试";
-            }
-        }
-
-        function handleOrientation(event) {
-            // 平滑处理数据
-            deviceOrientation.alpha = event.alpha || 0; // 指南针方向
-            deviceOrientation.beta = event.beta || 0;   // 前后倾斜 (-180, 180)
-            deviceOrientation.gamma = event.gamma || 0; // 左右倾斜 (-90, 90)
-            
-            document.getElementById('hud').innerHTML = 
-                `GYRO: ${Math.round(deviceOrientation.beta)} | ${Math.round(deviceOrientation.gamma)}<br>TOUCH: Active`;
-        }
-
-        // --- 2. Three.js 场景构建 ---
-        function initThreeJS() {
-            const container = document.getElementById('canvas-container');
-            
             scene = new THREE.Scene();
-            // 不设置背景色，保持透明以显示 video
-            
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.z = 3;
 
-            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            // 1. Setup Camera
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+            // 2. Setup Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(0, 10, 5);
+            scene.add(directionalLight);
+
+            // 3. Setup Renderer (Alpha true is required for AR camera feed)
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true; // Enable WebXR
             container.appendChild(renderer.domElement);
 
-            // 后期处理 (发光)
-            composer = new THREE.EffectComposer(renderer);
-            composer.addPass(new THREE.RenderPass(scene, camera));
-            const bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
-                2.0, 0.4, 0.1
+            // 4. Add AR Button to DOM
+            // 'requiredFeatures': ['hit-test'] asks the browser for plane detection capabilities
+            document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+
+            // 5. Build the Reticle (The circle that shows where you are aiming)
+            reticle = new THREE.Mesh(
+                new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0x00ff00 }) // Green ring
             );
-            composer.addPass(bloomPass);
+            reticle.matrixAutoUpdate = false;
+            reticle.visible = false;
+            scene.add(reticle);
 
-            // 创建魔法阵 (复用之前的逻辑)
-            createShield();
+            // 6. Build the Christmas Tree (Hidden initially)
+            createChristmasTree();
+            treeGroup.visible = false; 
+            scene.add(treeGroup);
 
-            // 触摸事件监听
-            window.addEventListener('touchstart', onTouchStart);
-            window.addEventListener('resize', onResize);
+            // 7. Interaction (Tap to Place)
+            controller = renderer.xr.getController(0);
+            controller.addEventListener('select', onSelect);
+            scene.add(controller);
 
-            animate();
+            window.addEventListener('resize', onWindowResize);
         }
 
-        function createShield() {
-            shieldGroup = new THREE.Group();
-            scene.add(shieldGroup);
+        // --- Procedural Tree Generation ---
+        function createChristmasTree() {
+            treeGroup = new THREE.Group();
 
-            const layers = [
-                { radius: 1.2, speed: 0.01, z: 0 },
-                { radius: 0.9, speed: -0.02, z: 0.1 },
-                { radius: 0.5, speed: 0.04, z: 0.2 }
+            // Materials
+            const leafMat = new THREE.MeshStandardMaterial({ color: 0x0f5f0f, roughness: 0.8 });
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+            const starMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd000, emissiveIntensity: 0.5 });
+
+            // Trunk
+            const trunkGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.5);
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 0.25;
+            treeGroup.add(trunk);
+
+            // Leaves (3 Cones stacked)
+            const levels = [
+                { r: 0.6, h: 0.8, y: 0.6 },
+                { r: 0.45, h: 0.7, y: 1.1 },
+                { r: 0.3, h: 0.6, y: 1.5 }
             ];
 
-            layers.forEach(layer => {
-                const texture = createRuneTexture(512, Math.random());
-                const mat = new THREE.MeshBasicMaterial({
-                    map: texture,
-                    color: 0xff9d00,
-                    transparent: true,
-                    opacity: 0.9,
-                    side: THREE.DoubleSide,
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false
-                });
-                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(layer.radius*2, layer.radius*2), mat);
-                mesh.position.z = layer.z;
-                mesh.userData.speed = layer.speed;
-                shieldGroup.add(mesh);
+            levels.forEach(level => {
+                const coneGeo = new THREE.ConeGeometry(level.r, level.h, 32);
+                const cone = new THREE.Mesh(coneGeo, leafMat);
+                cone.position.y = level.y;
+                treeGroup.add(cone);
+                
+                // Add Ornaments per level
+                addOrnaments(level.y, level.r, level.h);
             });
-        }
 
-        // 简化的纹理生成
-        function createRuneTexture(size, seed) {
-            const canvas = document.createElement('canvas');
-            canvas.width = size; canvas.height = size;
-            const ctx = canvas.getContext('2d');
-            ctx.translate(size/2, size/2);
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 4;
-            ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
+            // Star on top
+            const starGeo = new THREE.OctahedronGeometry(0.12);
+            const star = new THREE.Mesh(starGeo, starMat);
+            star.position.y = 1.85;
+            // Star spin animation logic will be in render loop
+            star.userData = { rotate: true }; 
+            treeGroup.add(star);
 
-            // 外圈
-            ctx.beginPath(); ctx.arc(0,0, size/2 - 10, 0, Math.PI*2); ctx.stroke();
-            // 随机几何
-            for(let i=0; i<8; i++) {
-                ctx.rotate(Math.PI/4);
-                ctx.beginPath();
-                ctx.moveTo(size/3, 0);
-                ctx.lineTo(size/2-20, 10);
-                ctx.stroke();
-                // 方块
-                ctx.strokeRect(size/4, -10, 20, 20);
+            // Snow System (Attached to the tree group)
+            const snowGeo = new THREE.BufferGeometry();
+            const snowCount = 400;
+            const posArray = new Float32Array(snowCount * 3);
+            
+            for(let i = 0; i < snowCount * 3; i+=3) {
+                posArray[i] = (Math.random() - 0.5) * 2; // x
+                posArray[i+1] = Math.random() * 2 + 0.5; // y
+                posArray[i+2] = (Math.random() - 0.5) * 2; // z
             }
-            return new THREE.CanvasTexture(canvas);
+            
+            snowGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            const snowMat = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.02,
+                transparent: true,
+                opacity: 0.8
+            });
+            particles = new THREE.Points(snowGeo, snowMat);
+            treeGroup.add(particles);
+
+            // Light Glow
+            const pointLight = new THREE.PointLight(0xffaa00, 1, 3);
+            pointLight.position.set(0, 1, 0);
+            treeGroup.add(pointLight);
         }
 
-        // --- 3. 交互逻辑 ---
-        
-        function onTouchStart() {
-            // 点击屏幕切换开关
-            if (targetScale < 0.1) targetScale = 1;
-            else targetScale = 0;
+        function addOrnaments(y, radius, height) {
+            const colors = [0xff0000, 0x0000ff, 0xffd700, 0xffffff];
+            const count = 8; 
+
+            for(let i=0; i<count; i++) {
+                const angle = (i / count) * Math.PI * 2;
+                // Place on the surface of the cone approximately
+                const x = Math.cos(angle) * (radius * 0.8);
+                const z = Math.sin(angle) * (radius * 0.8);
+                
+                const bulbGeo = new THREE.SphereGeometry(0.04, 16, 16);
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const mat = new THREE.MeshStandardMaterial({ 
+                    color: color, 
+                    emissive: color,
+                    emissiveIntensity: 0.5 
+                });
+
+                const bulb = new THREE.Mesh(bulbGeo, mat);
+                // Adjust height to sit on the cone slope
+                bulb.position.set(x, y - height * 0.3, z);
+                
+                // Save for animation
+                bulb.userData = { 
+                    originalIntensity: 0.5, 
+                    speed: Math.random() * 5, 
+                    offset: Math.random() * 100 
+                };
+                
+                ornaments.push(bulb);
+                treeGroup.add(bulb);
+            }
         }
 
-        function onResize() {
+        // --- Interaction ---
+        function onSelect() {
+            if (reticle.visible) {
+                // If reticle is visible, move the tree there and show it
+                treeGroup.position.setFromMatrixPosition(reticle.matrix);
+                treeGroup.visible = true;
+            }
+        }
+
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        // --- Render Loop ---
         function animate() {
-            requestAnimationFrame(animate);
+            renderer.setAnimationLoop(render);
+        }
 
-            // 1. 处理缩放动画
-            currentScale += (targetScale - currentScale) * 0.1;
-            shieldGroup.scale.set(currentScale, currentScale, currentScale);
+        function render(timestamp, frame) {
+            // 1. Hit Test Logic (Find the floor)
+            if (frame) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
 
-            // 2. 只有显示时才计算旋转和陀螺仪
-            if (currentScale > 0.01) {
-                // 自转
-                shieldGroup.children.forEach(mesh => {
-                    mesh.rotation.z += mesh.userData.speed;
-                });
+                if (hitTestSourceRequested === false) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+                    session.addEventListener('end', function () {
+                        hitTestSourceRequested = false;
+                        hitTestSource = null;
+                    });
+                    hitTestSourceRequested = true;
+                }
 
-                // 陀螺仪控制整体角度 (将手机倾斜映射到魔法阵倾斜)
-                // 这里做一个平滑插值
-                const targetRotX = (deviceOrientation.beta - 45) * (Math.PI / 180); // 减45度是因为通常手机是斜着拿的
-                const targetRotY = (deviceOrientation.gamma) * (Math.PI / 180);
+                if (hitTestSource) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
 
-                shieldGroup.rotation.x += (targetRotX - shieldGroup.rotation.x) * 0.1;
-                shieldGroup.rotation.y += (targetRotY - shieldGroup.rotation.y) * 0.1;
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
+                }
             }
 
-            composer.render();
+            // 2. Animations
+            if(treeGroup.visible) {
+                const time = Date.now() * 0.001;
+
+                // A. Blinking Lights
+                ornaments.forEach(bulb => {
+                    const intensity = Math.abs(Math.sin(time * bulb.userData.speed + bulb.userData.offset));
+                    bulb.material.emissiveIntensity = intensity + 0.2;
+                });
+
+                // B. Rotating Star
+                const star = treeGroup.children.find(c => c.userData.rotate);
+                if(star) star.rotation.y += 0.02;
+
+                // C. Falling Snow
+                if(particles) {
+                    const positions = particles.geometry.attributes.position.array;
+                    for(let i = 1; i < positions.length; i+=3) {
+                        positions[i] -= 0.005; // Move Y down
+                        if(positions[i] < 0) { // Reset if hits floor
+                            positions[i] = 2.0;
+                        }
+                    }
+                    particles.geometry.attributes.position.needsUpdate = true;
+                }
+            }
+
+            renderer.render(scene, camera);
         }
     </script>
 </body>
