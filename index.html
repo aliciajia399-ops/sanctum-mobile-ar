@@ -1,275 +1,639 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Christmas Magic Mirror</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>圣诞魔法树 AR</title>
     <style>
-        body { margin: 0; background-color: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #container { position: relative; width: 100vw; height: 100vh; }
+        body {
+            margin: 0;
+            background-color: #050510; /* 深色背景 */
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+
+        /* --- 2D UI 样式 --- */
+        #landing-page, #preview-page {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #0f1c2e 0%, #040812 100%);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+            transition: opacity 0.5s;
+        }
+
+        h1 {
+            color: #ffd700;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+            margin-bottom: 10px;
+        }
+
+        p.subtitle {
+            font-size: 14px;
+            color: #a0aab5;
+            text-align: center;
+            margin-bottom: 30px;
+            max-width: 300px;
+        }
+
+        .form-group {
+            width: 100%;
+            max-width: 320px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: #ffd700;
+            margin-bottom: 5px;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
         
-        /* 视频层：镜像翻转，像镜子一样 */
-        .input_video { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; transform: scaleX(-1); z-index: 0;
-        }
-        
-        /* 3D 渲染层 */
-        .output_canvas { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            z-index: 1; pointer-events: none; 
+        textarea { resize: none; height: 80px; }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #ffd700;
+            background: rgba(255, 255, 255, 0.15);
         }
 
-        /* 启动遮罩层 (iOS 必须) */
-        #start-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 999;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            color: white; text-align: center;
+        .btn {
+            background: linear-gradient(to right, #ffd700, #ffaa00);
+            border: none;
+            padding: 15px 40px;
+            color: #000;
+            font-weight: bold;
+            font-size: 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+            transition: transform 0.2s;
         }
 
-        button {
-            background: #ff3b30; border: none; padding: 15px 40px;
-            color: white; font-size: 20px; border-radius: 30px;
-            margin-top: 20px; font-weight: bold; cursor: pointer;
-            box-shadow: 0 0 20px rgba(255, 59, 48, 0.5);
+        .btn:active { transform: scale(0.95); }
+        .btn:disabled { background: #555; color: #888; box-shadow: none; }
+
+        /* --- AR Overlay UI --- */
+        #ar-ui {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            display: none; /* AR开始后显示 */
+            justify-content: center;
+            gap: 20px;
+            z-index: 5;
+            pointer-events: none; /* 让点击穿透到画布，除了按钮 */
         }
 
-        /* 状态提示 */
-        #hud {
-            position: absolute; bottom: 30px; left: 0; width: 100%;
-            text-align: center; color: white; z-index: 10;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none;
+        .ar-btn {
+            pointer-events: auto;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #ffd700;
+            color: #ffd700;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
         }
-        .status-badge {
-            background: rgba(0,0,0,0.5); padding: 8px 16px; border-radius: 20px;
-            display: inline-block; backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px); /* iOS 支持 */
+
+        #hint-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            border-radius: 10px;
+            pointer-events: none;
+            display: none;
+            z-index: 4;
+            text-align: center;
         }
+
+        /* 隐藏的Canvas用于生成文字贴图 */
+        #textCanvas { display: none; }
     </style>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <div id="start-screen">
-        <h1>圣诞魔镜 AR</h1>
-        <p>😊 微笑让树旋转<br>✋ 挥手改变方向</p>
-        <button onclick="startExperience()">点击开始</button>
-        <p style="font-size:12px; opacity:0.7; margin-top:20px;">请允许摄像头权限</p>
-    </div>
-
-    <div id="container">
-        <video class="input_video" playsinline muted autoplay></video>
-        <canvas class="output_canvas"></canvas>
-        <div id="hud">
-            <div class="status-badge" id="status-text">等待启动...</div>
-        </div>
-    </div>
-
-    <script>
-        const videoElement = document.getElementsByClassName('input_video')[0];
-        const canvasElement = document.getElementsByClassName('output_canvas')[0];
-        const statusText = document.getElementById('status-text');
-        const startScreen = document.getElementById('start-screen');
+    <div id="landing-page">
+        <h1>🎄 圣诞魔法树</h1>
+        <p class="subtitle">定制一棵只属于 TA 的圣诞树<br>在 AR 里送上祝福</p>
         
-        let camera3D, scene, renderer, treeGroup;
-        let isSmiling = false;
-        let handSpeed = 0;
-        let lastHandX = null;
-        let mixer; // 动画混合器
+        <div class="form-group">
+            <label>你的名字 (From)</label>
+            <input type="text" id="sender" placeholder="例如：Alex">
+        </div>
+        <div class="form-group">
+            <label>想送给谁 (To)</label>
+            <input type="text" id="recipient" placeholder="例如：Alice">
+        </div>
+        <div class="form-group">
+            <label>想说的话 (Message)</label>
+            <textarea id="message" placeholder="祝你天天开心，心想事成！"></textarea>
+        </div>
 
-        // 启动函数：用户点击按钮后调用
-        async function startExperience() {
-            startScreen.style.display = 'none';
-            statusText.innerText = "正在加载 AI 模型 (可能需要几秒)...";
-            
-            initThreeJS();
-            await initMediaPipe();
-        }
+        <button class="btn" id="next-btn" disabled>下一步</button>
+    </div>
 
-        function initThreeJS() {
+    <div id="preview-page" style="display: none;">
+        <h1>✨ 准备就绪</h1>
+        <p class="subtitle">即将生成的祝福卡片：</p>
+        
+        <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 30px; border: 1px dashed #ffd700;">
+            <h3 id="preview-title" style="color: #ffd700; margin: 0 0 10px 0;"></h3>
+            <p id="preview-body" style="font-size: 16px; margin: 0;"></p>
+        </div>
+
+        <p class="subtitle" style="color: #ff5555; font-size: 12px;">
+            ⚠️ iPhone 用户请使用 "WebXR Viewer" App 打开<br>
+            否则无法启动 AR 模式
+        </p>
+
+        <button class="btn" id="enter-ar-btn">进入 AR 圣诞树</button>
+    </div>
+
+    <div id="ar-ui">
+        <button class="ar-btn" id="btn-disperse">💥 散开 (Disperse)</button>
+        <button class="ar-btn" id="btn-assemble">🎄 聚合 (Assemble)</button>
+    </div>
+
+    <div id="hint-overlay">请寻找平坦地面<br>出现光圈后点击屏幕放置</div>
+
+    <canvas id="textCanvas" width="512" height="256"></canvas>
+
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+        import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
+
+        // --- 变量声明 ---
+        let container, scene, camera, renderer;
+        let controller;
+        let reticle;
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
+        
+        // 树与粒子相关
+        let treeGroup; 
+        let particles = []; // 存储所有卡片/粒子对象
+        let textMesh;       // 祝福语牌子
+        let isPlaced = false;
+        let animationState = 'assembled'; // 'assembled', 'dispersing', 'dispersed', 'assembling'
+        
+        // 用户数据
+        const userData = { sender: '', recipient: '', message: '' };
+
+        // 交互手势
+        let touchStartPos = { x: 0, y: 0 };
+        let touchStartDist = 0;
+        let baseScale = 1;
+        let baseRotationY = 0;
+
+        // --- DOM 元素引用 ---
+        const landingPage = document.getElementById('landing-page');
+        const previewPage = document.getElementById('preview-page');
+        const nextBtn = document.getElementById('next-btn');
+        const enterArBtn = document.getElementById('enter-ar-btn');
+        const arUi = document.getElementById('ar-ui');
+        const hintOverlay = document.getElementById('hint-overlay');
+        
+        const inputs = [document.getElementById('sender'), document.getElementById('recipient'), document.getElementById('message')];
+
+        // --- 1. 2D UI 逻辑 ---
+
+        // 表单验证
+        inputs.forEach(input => {
+            input.addEventListener('input', () => {
+                const allFilled = inputs.every(i => i.value.trim() !== '');
+                nextBtn.disabled = !allFilled;
+            });
+        });
+
+        // 点击下一步
+        nextBtn.addEventListener('click', () => {
+            userData.sender = document.getElementById('sender').value;
+            userData.recipient = document.getElementById('recipient').value;
+            userData.message = document.getElementById('message').value;
+
+            // 更新预览
+            document.getElementById('preview-title').innerText = `${userData.recipient}`;
+            document.getElementById('preview-body').innerText = `${userData.message}\n\n—— ${userData.sender}`;
+
+            // 切换页面
+            landingPage.style.opacity = 0;
+            setTimeout(() => {
+                landingPage.style.display = 'none';
+                previewPage.style.display = 'flex';
+            }, 500);
+        });
+
+        // 点击进入 AR
+        enterArBtn.addEventListener('click', () => {
+            previewPage.style.display = 'none';
+            initAR(); // 初始化 3D 场景
+        });
+
+        // AR 按钮逻辑
+        document.getElementById('btn-disperse').addEventListener('click', () => {
+            disperseTree();
+        });
+        document.getElementById('btn-assemble').addEventListener('click', () => {
+            assembleTree();
+        });
+
+
+        // --- 2. Three.js 与 AR 初始化 ---
+
+        function initAR() {
+            container = document.createElement('div');
+            document.body.appendChild(container);
+
             scene = new THREE.Scene();
-            // 相机位置：稍微放远一点，让树在屏幕下方
-            camera3D = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera3D.position.set(0, 0, 3);
 
-            renderer = new THREE.WebGLRenderer({ canvas: canvasElement, alpha: true, antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            // 相机
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
             // 灯光
-            const ambient = new THREE.AmbientLight(0xffffff, 1.0);
-            scene.add(ambient);
-            const dirLight = new THREE.DirectionalLight(0xffd700, 1.5);
-            dirLight.position.set(2, 5, 5);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffd700, 1.5); // 金色阳光
+            dirLight.position.set(5, 10, 7);
             scene.add(dirLight);
 
-            createProceduralTree();
-            animate();
-        }
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
 
-        // 构建简易圣诞树
-        function createProceduralTree() {
-            treeGroup = new THREE.Group();
-            scene.add(treeGroup);
+            // 添加 WebXR 按钮
+            const btn = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+            document.body.appendChild(btn);
             
-            // 树身向下移动一点，给脸部留出空间
-            treeGroup.position.y = -1.0; 
+            // 自动点击 AR 按钮 (模拟用户点击，某些浏览器可能拦截，需要用户手动点)
+            // btn.click(); 
+            // 提示用户点击屏幕下方的 "START AR"
 
-            // 1. 树叶 (圆锥体)
-            const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.4 });
-            const levels = [
-                { r: 0.8, h: 1.0, y: 0.5 },
-                { r: 0.6, h: 0.9, y: 1.2 },
-                { r: 0.4, h: 0.8, y: 1.8 }
-            ];
-            levels.forEach(lvl => {
-                const cone = new THREE.Mesh(new THREE.ConeGeometry(lvl.r, lvl.h, 32), leafMat);
-                cone.position.y = lvl.y;
-                treeGroup.add(cone);
-                addDecorations(lvl.y, lvl.r);
-            });
+            hintOverlay.style.display = 'block';
 
-            // 2. 树干
-            const trunk = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.15, 0.15, 0.8),
-                new THREE.MeshStandardMaterial({ color: 0x5c4033 })
+            // 光标 (Reticle)
+            reticle = new THREE.Mesh(
+                new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0x00ff00 })
             );
-            trunk.position.y = 0;
-            treeGroup.add(trunk);
+            reticle.matrixAutoUpdate = false;
+            reticle.visible = false;
+            scene.add(reticle);
 
-            // 3. 顶部星星
-            const star = new THREE.Mesh(
-                new THREE.OctahedronGeometry(0.15),
-                new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffaa00 })
-            );
-            star.position.y = 2.3;
-            treeGroup.add(star);
+            // 创建树 (初始隐藏)
+            createTreeGroup();
+            
+            // 控制器 (用于点击放置)
+            controller = renderer.xr.getController(0);
+            controller.addEventListener('select', onSelect);
+            scene.add(controller);
+
+            // 窗口大小调整
+            window.addEventListener('resize', onWindowResize);
+
+            // 渲染循环
+            renderer.setAnimationLoop(render);
+
+            // 添加手势监听 (用于放置后的旋转和缩放)
+            addGestures();
         }
 
-        function addDecorations(y, r) {
-            const colors = [0xff0000, 0x0000ff, 0xffd700, 0xffffff];
-            for(let i=0; i<6; i++) {
-                const angle = (i/6) * Math.PI * 2;
-                const dist = r * 0.75;
-                const mesh = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.06, 16, 16),
-                    new THREE.MeshStandardMaterial({ 
-                        color: colors[Math.floor(Math.random()*colors.length)],
-                        metalness: 0.8, roughness: 0.1
-                    })
-                );
-                mesh.position.set(Math.cos(angle)*dist, y - 0.2, Math.sin(angle)*dist);
+        // --- 3. 圣诞树逻辑 (粒子系统) ---
+
+        function createTreeGroup() {
+            treeGroup = new THREE.Group();
+            treeGroup.visible = false; // 还没放置
+            scene.add(treeGroup);
+
+            // 3.1 核心发光柱 (作为树干隐约可见)
+            const coreGeo = new THREE.CylinderGeometry(0.05, 0.2, 1.5, 32);
+            const coreMat = new THREE.MeshBasicMaterial({ 
+                color: 0xffaa00, 
+                transparent: true, 
+                opacity: 0.3,
+                blending: THREE.AdditiveBlending 
+            });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            core.position.y = 0.75;
+            treeGroup.add(core);
+
+            // 3.2 粒子卡片生成
+            // 我们生成 200 个小卡片，按螺旋排列成圆锥体
+            const particleCount = 200;
+            const treeHeight = 1.5;
+            const maxRadius = 0.6;
+            
+            const cardGeo = new THREE.PlaneGeometry(0.08, 0.1); // 类似照片的比例
+            // 定义几种颜色来模拟不同的照片/装饰
+            const colors = [0xffffff, 0xffd700, 0xff0000, 0x00ff00, 0x00aaff];
+
+            for (let i = 0; i < particleCount; i++) {
+                const mat = new THREE.MeshStandardMaterial({
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    side: THREE.DoubleSide,
+                    roughness: 0.4,
+                    metalness: 0.6
+                });
+
+                const mesh = new THREE.Mesh(cardGeo, mat);
+                
+                // --- 计算 "组装状态" (树形) 的位置 ---
+                // y: 从下到上 (0 到 treeHeight)
+                // t: 归一化高度 (0 到 1)
+                const t = i / particleCount; 
+                const y = t * treeHeight + 0.2; // 离地一点
+                const radius = (1 - t) * maxRadius; // 越往上越窄
+                const angle = i * 0.5; // 螺旋角度
+                
+                const targetX = Math.cos(angle) * radius;
+                const targetZ = Math.sin(angle) * radius;
+                
+                // 稍微随机一点旋转，看起来更自然
+                const targetRotX = (Math.random() - 0.5);
+                const targetRotY = angle + Math.PI/2; // 面向外
+                const targetRotZ = (Math.random() - 0.5);
+
+                // --- 计算 "散开状态" (星云) 的位置 ---
+                // 随机分布在以树顶为中心的大球体中
+                const disperseRadius = 1.5 + Math.random() * 1.0;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
+                
+                const dispX = disperseRadius * Math.sin(phi) * Math.cos(theta);
+                const dispY = disperseRadius * Math.sin(phi) * Math.sin(theta) + 1.0; // 抬高一点
+                const dispZ = disperseRadius * Math.cos(phi);
+
+                // 存储数据到 userData
+                mesh.userData = {
+                    assembled: { x: targetX, y: y, z: targetZ, rx: targetRotX, ry: targetRotY, rz: targetRotZ },
+                    dispersed: { x: dispX, y: dispY, z: dispZ, rx: Math.random()*Math.PI, ry: Math.random()*Math.PI, rz: Math.random()*Math.PI },
+                    current: { x: 0, y: 0, z: 0 }, // 动画中的实时位置
+                    speed: 0.02 + Math.random() * 0.03 // 每个粒子速度不同
+                };
+
+                // 初始位置设为 dispersed (从天而降的效果) 还是 assembled?
+                // 参考需求：先放置，然后用户可以玩散开/聚合。
+                // 我们让它初始就是 assembled 状态。
+                mesh.position.set(targetX, y, targetZ);
+                mesh.rotation.set(targetRotX, targetRotY, targetRotZ);
+
+                particles.push(mesh);
                 treeGroup.add(mesh);
             }
+
+            // 3.3 顶部星星
+            const starGeo = new THREE.OctahedronGeometry(0.15);
+            const starMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 1 });
+            const star = new THREE.Mesh(starGeo, starMat);
+            star.position.y = treeHeight + 0.2;
+            // 星星也作为一个粒子，但只有简单的升降
+            star.userData = {
+                assembled: { x:0, y: treeHeight + 0.2, z:0, rx:0, ry:0, rz:0 },
+                dispersed: { x:0, y: treeHeight + 1.5, z:0, rx: Math.random(), ry: Math.random(), rz: Math.random() },
+                speed: 0.05
+            };
+            particles.push(star);
+            treeGroup.add(star);
+
+            // 3.4 生成文字牌
+            createGreetingText();
         }
 
-        // --- MediaPipe 配置 ---
-        async function initMediaPipe() {
-            // 手势模型
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 0, // 0 = 最快 (适合手机), 1 = 标准
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            hands.onResults(onHandResults);
-
-            // 面部模型
-            const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-            faceMesh.setOptions({
-                maxNumFaces: 1,
-                refineLandmarks: false, // 手机端关闭精细化以提高速度
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            faceMesh.onResults(onFaceResults);
-
-            // 启动摄像头
-            const camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await hands.send({image: videoElement});
-                    await faceMesh.send({image: videoElement});
-                },
-                width: 640, // 降低分辨率以提高手机性能
-                height: 480,
-                facingMode: 'user' // 强制前置摄像头
-            });
+        // 生成文字纹理
+        function createGreetingText() {
+            const canvas = document.getElementById('textCanvas');
+            const ctx = canvas.getContext('2d');
             
-            await camera.start();
-            statusText.innerText = "系统就绪！对着屏幕微笑吧 😊";
-            statusText.style.background = "rgba(0,128,0,0.6)";
+            // 背景
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+            // 文字设置
+            ctx.font = 'bold 30px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // 绘制文字
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`To: ${userData.recipient}`, centerX, centerY - 60);
+            
+            ctx.font = '24px sans-serif';
+            ctx.fillStyle = '#ffd700';
+            // 简单处理长文本换行 (这里简化，只取前20个字)
+            let msg = userData.message.length > 15 ? userData.message.substring(0, 15) + '...' : userData.message;
+            ctx.fillText(msg, centerX, centerY);
+
+            ctx.font = 'italic 20px sans-serif';
+            ctx.fillStyle = '#cccccc';
+            ctx.fillText(`From: ${userData.sender}`, centerX, centerY + 60);
+
+            // 创建材质
+            const texture = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+            const geo = new THREE.PlaneGeometry(0.8, 0.4);
+            
+            textMesh = new THREE.Mesh(geo, mat);
+            textMesh.position.set(0, 0.5, 0.6); // 放在树前面
+            textMesh.visible = false; // 初始隐藏，聚合动画完成后显示
+            treeGroup.add(textMesh);
         }
 
-        // --- 交互逻辑 ---
-        function onFaceResults(results) {
-            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                const face = results.multiFaceLandmarks[0];
-                // 简单的微笑检测：比较嘴角宽度与嘴唇高度
-                // 索引: 61(左角), 291(右角), 13(上唇), 14(下唇)
-                const width = Math.hypot(face[61].x - face[291].x, face[61].y - face[291].y);
-                const height = Math.hypot(face[13].x - face[14].x, face[13].y - face[14].y);
-                const ratio = width / (height + 0.01); // 防止除以0
+        // --- 4. 动画逻辑 (散开/聚合) ---
 
-                if (ratio > 3.0) { // 阈值，可微调
-                    isSmiling = true;
-                    statusText.innerText = "检测到微笑！加速旋转！✨";
-                } else {
-                    isSmiling = false;
-                    if (Math.abs(handSpeed) < 0.01) statusText.innerText = "微笑或挥手来控制";
+        function disperseTree() {
+            animationState = 'dispersing';
+            textMesh.visible = false; // 散开时隐藏文字
+        }
+
+        function assembleTree() {
+            animationState = 'assembling';
+        }
+
+        function updateParticles() {
+            if (!treeGroup.visible) return;
+
+            // 简单的插值动画
+            let allDone = true;
+
+            particles.forEach(p => {
+                const target = (animationState === 'assembling' || animationState === 'assembled') 
+                    ? p.userData.assembled 
+                    : p.userData.dispersed;
+
+                // Lerp 位置
+                p.position.x += (target.x - p.position.x) * p.userData.speed;
+                p.position.y += (target.y - p.position.y) * p.userData.speed;
+                p.position.z += (target.z - p.position.z) * p.userData.speed;
+
+                // Lerp 旋转
+                p.rotation.x += (target.rx - p.rotation.x) * p.userData.speed;
+                p.rotation.y += (target.ry - p.rotation.y) * p.userData.speed;
+                p.rotation.z += (target.rz - p.rotation.z) * p.userData.speed;
+
+                // 检查是否还在运动 (简单距离检查)
+                if (Math.abs(p.position.y - target.y) > 0.01) {
+                    allDone = false;
                 }
+
+                // 如果是散开状态，加一点漂浮感
+                if (animationState === 'dispersed' || (animationState === 'dispersing' && allDone)) {
+                    p.rotation.y += 0.01; 
+                }
+            });
+
+            // 状态转换
+            if (allDone) {
+                if (animationState === 'assembling') {
+                    animationState = 'assembled';
+                    // 聚合完成后显示文字
+                    textMesh.visible = true;
+                    // 文字有个简单的浮动动画
+                } else if (animationState === 'dispersing') {
+                    animationState = 'dispersed';
+                }
+            }
+            
+            // 文字牌始终面向摄像机 (Billboard)
+            if (textMesh && textMesh.visible) {
+                // 只在Y轴旋转，保持垂直
+                textMesh.lookAt(camera.position);
             }
         }
 
-        function onHandResults(results) {
-            if (results.multiHandLandmarks.length > 0) {
-                const handX = results.multiHandLandmarks[0][9].x; // 中指根部X坐标
-                if (lastHandX !== null) {
-                    // 计算移动差值 (反向，因为镜像)
-                    handSpeed = (handX - lastHandX) * -8.0; 
-                    statusText.innerText = "手势控制中 ✋";
-                }
-                lastHandX = handX;
-            } else {
-                lastHandX = null;
+        // --- 5. 交互逻辑 (点击放置 & 手势) ---
+
+        function onSelect() {
+            if (reticle.visible && !isPlaced) {
+                // 第一次放置
+                treeGroup.position.setFromMatrixPosition(reticle.matrix);
+                treeGroup.visible = true;
+                isPlaced = true;
+                
+                // 显示 AR UI
+                arUi.style.display = 'flex';
+                hintOverlay.innerHTML = '拖动旋转 • 双指缩放';
+                setTimeout(() => { hintOverlay.style.display = 'none'; }, 3000);
             }
         }
 
-        // --- 动画循环 ---
-        function animate() {
-            requestAnimationFrame(animate);
+        function addGestures() {
+            const canvas = renderer.domElement;
+            
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    touchStartPos.x = e.touches[0].pageX;
+                    touchStartPos.y = e.touches[0].pageY;
+                    baseRotationY = treeGroup.rotation.y;
+                } else if (e.touches.length === 2) {
+                    const dx = e.touches[0].pageX - e.touches[1].pageX;
+                    const dy = e.touches[0].pageY - e.touches[1].pageY;
+                    touchStartDist = Math.sqrt(dx*dx + dy*dy);
+                    baseScale = treeGroup.scale.x;
+                }
+            });
 
-            if (treeGroup) {
-                if (isSmiling) {
-                    // 微笑时：持续快速旋转
-                    treeGroup.rotation.y += 0.05;
-                    // 树变大一点点
-                    treeGroup.scale.lerp(new THREE.Vector3(1.2, 1.2, 1.2), 0.1);
-                } else {
-                    // 正常时：应用手势速度或惯性
-                    treeGroup.rotation.y += handSpeed;
-                    treeGroup.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+            canvas.addEventListener('touchmove', (e) => {
+                if (!isPlaced) return;
+
+                if (e.touches.length === 1) {
+                    // 单指旋转
+                    const deltaX = e.touches[0].pageX - touchStartPos.x;
+                    treeGroup.rotation.y = baseRotationY + deltaX * 0.01;
+                } else if (e.touches.length === 2) {
+                    // 双指缩放
+                    const dx = e.touches[0].pageX - e.touches[1].pageX;
+                    const dy = e.touches[0].pageY - e.touches[1].pageY;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
                     
-                    // 惯性递减
-                    handSpeed *= 0.95;
+                    let newScale = baseScale * (dist / touchStartDist);
+                    newScale = Math.max(0.1, Math.min(newScale, 3.0)); // 限制缩放范围
+                    treeGroup.scale.set(newScale, newScale, newScale);
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 6. 渲染循环 ---
+
+        function render(timestamp, frame) {
+            // Hit Test (检测地面)
+            if (frame && !isPlaced) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+
+                if (hitTestSourceRequested === false) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+                    session.addEventListener('end', function () {
+                        hitTestSourceRequested = false;
+                        hitTestSource = null;
+                        arUi.style.display = 'none';
+                        isPlaced = false;
+                        treeGroup.visible = false;
+                        landingPage.style.display = 'flex';
+                        landingPage.style.opacity = 1;
+                    });
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
                 }
             }
 
-            renderer.render(scene, camera3D);
-        }
+            // 更新动画
+            updateParticles();
 
-        // 窗口大小适配
-        window.addEventListener('resize', () => {
-            camera3D.aspect = window.innerWidth / window.innerHeight;
-            camera3D.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+            renderer.render(scene, camera);
+        }
 
     </script>
 </body>
