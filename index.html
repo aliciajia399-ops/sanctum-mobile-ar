@@ -3,16 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Golden Christmas AR - Vision Hand Control</title>
-    
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
+    <title>Golden Christmas AR - Starry Night</title>
     <style>
         /* =========================================
-           全局样式 (保持暗黑金风格)
+           1. 全局 CSS 变量与基础设定
            ========================================= */
         :root {
             --gold: #FFD700;
@@ -30,9 +24,10 @@
             overflow: hidden; color: var(--gold); user-select: none;
         }
 
+        /* 全局背景粒子画布 */
         #particle-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 
-        /* 视图容器 */
+        /* 通用视图容器 */
         .view-section {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -41,7 +36,7 @@
         }
         .view-section.active { display: flex; opacity: 1; }
 
-        /* 通用按钮 */
+        /* 通用金色按钮 */
         .btn-gold {
             background: linear-gradient(135deg, var(--gold-dark), var(--gold));
             border: none; color: #000; padding: 12px 30px; font-size: 16px; font-weight: bold;
@@ -59,11 +54,11 @@
             background: rgba(0,0,0,0.5); border: 1px solid #555; color: var(--gold);
             border-radius: 8px; text-align: center; font-size: 16px; outline: none;
         }
+        .input-gold:focus { border-color: var(--gold); box-shadow: 0 0 8px var(--gold-glow); }
 
         /* =========================================
-           特定视图样式
+           2. 登录、选角、定制页样式
            ========================================= */
-        
         /* 登录页 */
         .login-panel {
             width: 85%; max-width: 320px; padding: 30px 20px;
@@ -71,13 +66,13 @@
             text-align: center; backdrop-filter: blur(10px); position: relative;
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
         }
-        .bg-anim-item { position: absolute; font-size: 40px; opacity: 0.6; pointer-events: none; }
+        .bg-anim-item { position: absolute; font-size: 40px; opacity: 0.6; filter: drop-shadow(0 0 10px gold); pointer-events: none; }
         .anim-car { top: 70%; left: -100px; animation: driveBy 8s linear infinite; }
         .anim-tree { top: 20%; right: -100px; animation: floatBy 10s linear infinite; animation-delay: 2s; font-size: 50px; }
         @keyframes driveBy { 0% { opacity:0; } 10% { opacity:1; } 90% { opacity:1; } 100% { transform: translateX(120vw); opacity:0; } }
         @keyframes floatBy { 0% { opacity:0; } 10% { opacity:1; } 90% { opacity:1; } 100% { transform: translateX(-120vw) rotate(360deg); opacity:0; } }
 
-        /* 英雄选择页 */
+        /* 英雄页 */
         .hero-grid { display: flex; gap: 15px; justify-content: center; perspective: 1000px; }
         .hero-card {
             width: 90px; height: 150px; background: rgba(20,20,20,0.9); border: 1px solid #444;
@@ -98,57 +93,88 @@
             transition: all 1s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .santa-appear { transform: scale(1.1) !important; opacity: 1 !important; }
-        .shake-alert { color: #ff3333; font-size: 22px; font-weight: bold; text-align: center; animation: pulseFast 0.5s infinite; }
+        .shake-alert { color: #ff3333; font-size: 22px; font-weight: bold; text-align: center; text-shadow: 0 0 10px #000; animation: pulseFast 0.5s infinite; }
         @keyframes pulseFast { 0%,100%{transform:scale(1);} 50%{transform:scale(1.05);} }
+        .shake-success { color: var(--gold); font-size: 22px; font-weight: bold; text-align: center; text-shadow: 0 0 10px var(--gold-glow); }
+
 
         /* =========================================
-           AR 核心场景 (Vision Control)
+           3. AR 核心场景 (PiP + 舞台中心化)
            ========================================= */
-        /* 前置摄像头镜像显示 */
-        #ar-camera-feed {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: cover; z-index: -2; transform: scaleX(-1); background: #000;
-        }
         
-        /* 树容器 */
+        /* 核心修改：AR 场景背景改为星空，不再透视摄像头 */
+        #view-ar {
+            background:
+                radial-gradient(circle at 20% 0%, rgba(255, 215, 0, 0.12), transparent 55%),
+                radial-gradient(circle at 80% 100%, rgba(255, 215, 0, 0.08), transparent 55%),
+                radial-gradient(circle at 50% 50%, #050510, #020308 70%, #000 100%);
+        }
+
+        /* 核心修改：前置摄像头右上角小窗口 */
+        #ar-camera-feed {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 28vw;
+            max-width: 130px;
+            aspect-ratio: 3 / 4;
+            height: auto;
+            object-fit: cover;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 215, 0, 0.6);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.9);
+            z-index: 5; /* 在背景之上，UI之下 */
+            transform: scaleX(-1); /* 镜像 */
+            background: #000;
+        }
+
+        /* 核心修改：舞台中心化 */
         #ar-tree-container {
-            position: relative; width: 300px; height: 400px;
-            perspective: 1200px; transform-style: preserve-3d;
-            transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* 增加平滑度 */
-            transform: scale(0) rotateY(0deg); opacity: 0;
+            position: relative;
+            width: 60vw;
+            max-width: 320px;
+            height: auto;
+            aspect-ratio: 3 / 4;
+            margin: auto; /* 绝对居中 */
+            perspective: 1200px;
+            transform-style: preserve-3d;
+            transition: transform 0.15s linear; /* 手势跟手 */
+            transform: scale(1) rotateY(0deg);
+            opacity: 1;
+            z-index: 1; /* 确保在粒子之上 */
         }
 
         #ar-tree-img {
             width: 100%; height: 100%; object-fit: contain;
-            filter: drop-shadow(0 0 40px var(--gold-glow)) brightness(1.1);
-            pointer-events: none; will-change: transform;
+            filter: drop-shadow(0 0 40px rgba(255, 215, 0, 0.9)) brightness(1.1);
+            /* 让手势穿透图片，由父级或背景响应 */
+            pointer-events: none; 
+            will-change: transform;
         }
 
-        /* 树周围的动态光晕 */
-        .tree-aura {
-            position: absolute; top: 50%; left: 50%; width: 100%; height: 100%;
-            transform: translate(-50%, -50%); border-radius: 50%;
-            box-shadow: 0 0 60px rgba(255, 215, 0, 0.3); pointer-events: none; z-index: -1;
-            animation: auraPulse 3s infinite;
-        }
-        @keyframes auraPulse { 0%,100%{opacity:0.5; transform:translate(-50%,-50%) scale(0.8);} 50%{opacity:0.8; transform:translate(-50%,-50%) scale(1.1);} }
-
-        /* UI */
+        /* AR UI 浮层 */
         .ar-ui-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
             display: flex; flex-direction: column; justify-content: space-between; padding: 30px 20px;
+            z-index: 10;
         }
-        .ar-timer { align-self: flex-end; font-size: 36px; font-weight: 800; text-shadow: 0 0 10px #000; }
-        
+        .ar-timer { 
+            position: absolute; top: 30px; left: 20px;
+            font-size: 36px; font-weight: 800; text-shadow: 0 0 10px #000; 
+        }
+
         .ar-guide {
             align-self: center; text-align: center; background: rgba(0,0,0,0.6);
             padding: 15px; border-radius: 12px; border: 1px solid var(--gold-glow);
-            animation: floatGuide 2s infinite ease-in-out; min-width: 250px;
+            animation: floatGuide 2s infinite ease-in-out;
+            min-width: 260px;
         }
-        @keyframes floatGuide { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
-        .guide-icon { font-size: 24px; display: block; margin-bottom: 5px; }
+        @keyframes floatGuide { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-5px);} }
 
-        /* 弹窗与特效 */
+        /* =========================================
+           4. 弹窗与特效
+           ========================================= */
         .modal-mask {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); z-index: 100; display: none;
@@ -156,7 +182,7 @@
         }
         .modal-body {
             background: var(--glass-bg); border: 1px solid var(--gold);
-            padding: 30px; border-radius: 15px; text-align: center; width: 85%;
+            padding: 30px; border-radius: 15px; text-align: center; width: 85%; max-width: 320px;
             box-shadow: 0 0 40px var(--gold-glow); transform: scale(0.9); transition: 0.3s;
         }
         .modal-body.show { transform: scale(1); }
@@ -168,13 +194,6 @@
         #explosion-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
         .boom-particle { position: absolute; background: var(--gold); border-radius: 50%; box-shadow: 0 0 10px var(--gold-glow); }
 
-        /* MediaPipe Loading */
-        #mp-loader {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-            color: var(--gold); background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px;
-            display: none; z-index: 50;
-        }
-
     </style>
 </head>
 <body>
@@ -184,8 +203,10 @@
     <section id="view-login" class="view-section active">
         <div class="bg-anim-item anim-car">🏎️</div>
         <div class="bg-anim-item anim-tree">🎄</div>
+        <div class="bg-anim-item anim-santa">🎅</div>
         <div class="login-panel">
             <h2 style="margin-top:0; text-shadow: 0 0 10px var(--gold);">VIP ACCESS</h2>
+            <div style="margin-bottom:20px; font-size:14px; color:#aaa;">开启你的金色圣诞之旅</div>
             <input type="tel" class="input-gold" placeholder="手机号">
             <input type="text" class="input-gold" placeholder="验证码">
             <button class="btn-gold" onclick="app.handleLogin()">立即登录</button>
@@ -193,7 +214,7 @@
     </section>
 
     <section id="view-hero" class="view-section">
-        <h2 style="margin-bottom:40px;">选择你的英雄</h2>
+        <h2 style="margin-bottom:40px; text-shadow: 0 0 15px var(--gold);">选择你的英雄</h2>
         <div class="hero-grid">
             <div class="hero-card unlocked" onclick="app.toast('已装备：金色玛莎拉蒂')">
                 <div class="hero-icon">🏎️</div>
@@ -213,35 +234,39 @@
 
     <section id="view-customize" class="view-section">
         <h2>定制你的祝福</h2>
-        <input type="text" id="wish-input" class="input-gold" style="width:80%;" maxlength="20" placeholder="写下你的祝福...">
+        <input type="text" id="wish-input" class="input-gold" style="width:80%;" maxlength="20" placeholder="例如：闺蜜今年一起暴富！">
         <button class="btn-gold" onclick="app.confirmWish()">确认生成</button>
     </section>
 
     <section id="view-santa" class="view-section">
-        <img id="santa-story-img" src="image_2.png" alt="Santa">
-        <div id="santa-hint" class="shake-alert">飞快摇动你的手机！</div>
-        <button onclick="app.triggerShakeMock()" style="margin-top:30px; opacity:0.5; background:none; border:1px solid #fff; color:#fff;">(模拟摇晃)</button>
+        <img id="santa-story-img" src="ChatGPT Image Dec 1, 2025, 10_09_26 PM.png" alt="Golden Santa">
+        <div id="santa-hint" class="shake-alert">
+            飞快摇动你的手机！<br>不然圣诞老人要撞上你了！
+        </div>
+        <button onclick="app.triggerShakeMock()" style="margin-top:30px; opacity:0.6; background:none; border:1px solid #666; color:#888; padding:6px 12px; border-radius:20px; font-size:12px;">
+            (模拟摇晃)
+        </button>
     </section>
 
-    <section id="view-ar" class="view-section" style="background: #000;">
-        <video id="ar-camera-feed" playsinline muted></video>
+    <section id="view-ar" class="view-section">
+        <video id="ar-camera-feed" autoplay playsinline muted></video>
         
         <div id="ar-tree-container">
-            <img id="ar-tree-img" src="image_0.png" alt="Golden AR Tree">
-            <div class="tree-aura"></div>
+            <img id="ar-tree-img" src="ChatGPT Image Dec 1, 2025, 09_36_29 PM.png" alt="Golden AR Tree">
         </div>
 
         <div class="ar-ui-overlay">
             <div id="ar-timer" class="ar-timer">12s</div>
-            <div id="mp-loader">🖐️ 正在启动手势识别引擎...</div>
-            <div class="ar-guide" id="ar-guide-box">
-                <span class="guide-icon">👋</span>
-                <span style="color:var(--gold); font-weight:bold;">把手放入画面中</span><br>
-                <div style="font-size:12px; margin-top:5px; text-align:left; display:inline-block;">
-                ↔️ 左右移动手掌 = 旋转<br>
-                ↕️ 手掌靠近镜头 = 放大
+            
+            <div class="ar-guide">
+                <div style="font-size:18px; font-weight:bold; margin-bottom:8px; color:var(--gold);">👋 手势控制</div>
+                <div style="font-size:14px; line-height:1.6; color:#fff;">
+                    左右滑动屏幕 → 圣诞树旋转<br>
+                    双指捏合 → 圣诞树放大 / 缩小
                 </div>
-                <div style="font-size:10px; opacity:0.6; margin-top:8px;">(仅识别手势，不存储人脸数据)</div>
+                <div style="font-size:10px; opacity:0.6; margin-top:8px; border-top:1px solid rgba(255,255,255,0.2); padding-top:5px;">
+                    右上角小窗口仅用于识别手势，不会存储人脸数据
+                </div>
             </div>
         </div>
     </section>
@@ -251,8 +276,8 @@
 
     <div id="modal" class="modal-mask">
         <div class="modal-body" id="modal-box">
-            <h3 id="modal-title" style="color:var(--gold);">提示</h3>
-            <p id="modal-content" style="color:#ccc;">内容</p>
+            <h3 id="modal-title" style="color:var(--gold); margin-top:0;">提示</h3>
+            <p id="modal-content" style="color:#ccc; margin:20px 0;">内容</p>
             <div id="modal-btns" style="display:flex; justify-content:center;"></div>
         </div>
     </div>
@@ -263,89 +288,13 @@
                 treeUnlocked: false,
                 passedSantaFlow: false,
                 shakeCount: 0,
-                isArRunning: false,
-                mpLoaded: false
+                cameraStream: null,
+                isArRunning: false
             },
-            hands: null,
-            camera: null,
-            lastTransform: "scale(1) rotateY(0deg)",
 
             init() {
                 this.initParticles();
-                this.initMediaPipe(); // 预加载 MediaPipe
-                console.log("App Initialized with MediaPipe.");
-            },
-
-            // --- MediaPipe 初始化 ---
-            initMediaPipe() {
-                // 配置 MediaPipe Hands
-                this.hands = new Hands({locateFile: (file) => {
-                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-                }});
-                
-                this.hands.setOptions({
-                    maxNumHands: 1,
-                    modelComplexity: 1,
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-
-                this.hands.onResults(this.onHandResults.bind(this));
-            },
-
-            // --- 核心：手势识别回调 ---
-            onHandResults(results) {
-                if (!this.state.isArRunning) return;
-
-                const tree = document.getElementById('ar-tree-container');
-                const guide = document.getElementById('ar-guide-box');
-                const loader = document.getElementById('mp-loader');
-                
-                // 隐藏加载状态
-                if(loader.style.display !== 'none') loader.style.display = 'none';
-
-                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                    // 检测到手
-                    const landmarks = results.multiHandLandmarks[0];
-                    guide.style.opacity = '0.3'; // 淡化提示
-
-                    // 1. 计算手部中心 X 坐标 (0-1)
-                    // 使用手腕(0)和中指根部(9)的平均值
-                    const wrist = landmarks[0];
-                    const middleRoot = landmarks[9];
-                    const middleTip = landmarks[12];
-                    
-                    // 注意：MediaPipe 坐标在自拍镜像模式下，x=0 是画面左边（用户右边）
-                    // 我们的 CSS flip 了 video，所以视觉上是一致的。
-                    // 但是逻辑上：handX 0->1，我们希望 rotate -60 -> 60
-                    const handX = (wrist.x + middleRoot.x) / 2;
-                    
-                    // 映射旋转: 0(左) -> -60deg, 1(右) -> 60deg
-                    // 反转系数，让移动方向符合直觉（手往右移，树往右转）
-                    const rotateY = (0.5 - handX) * 140; 
-
-                    // 2. 计算手的大小 (模拟距离)
-                    // 计算手腕到中指尖的距离
-                    const dx = middleTip.x - wrist.x;
-                    const dy = middleTip.y - wrist.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy); // 范围大概在 0.1 (远) 到 0.5 (近)
-
-                    // 映射缩放: 距离大(近) -> 放大
-                    // 基准 distance 约 0.25
-                    let scale = (dist / 0.25);
-                    scale = Math.min(Math.max(scale, 0.7), 1.6); // 限制范围 [0.7, 1.6]
-
-                    // 更新 Transform
-                    this.lastTransform = `scale(${scale.toFixed(2)}) rotateY(${rotateY.toFixed(1)}deg)`;
-                    tree.style.transform = this.lastTransform;
-
-                } else {
-                    // 未检测到手，保持最后状态或复位
-                    guide.style.opacity = '1';
-                    // tree.style.transform = this.lastTransform; // 保持不动
-                    // 或者缓慢复位：
-                    // tree.style.transform = "scale(1) rotateY(0deg)";
-                }
+                console.log("Golden AR App Initialized.");
             },
 
             // --- 视图切换 ---
@@ -355,24 +304,27 @@
                 if (viewId !== 'view-ar') this.stopCamera();
             },
 
-            // --- 业务流程 ---
+            // --- 业务流程：登录/选角/定制/剧情 ---
             handleLogin() {
                 const btn = document.querySelector('#view-login .btn-gold');
-                btn.innerText = "正在验证...";
+                btn.innerText = "正在验证..."; btn.disabled = true;
                 setTimeout(() => {
                     btn.innerText = "登录成功";
-                    setTimeout(() => this.switchView('view-hero'), 800);
+                    setTimeout(() => {
+                        this.switchView('view-hero');
+                        btn.innerText = "立即登录"; btn.disabled = false;
+                    }, 800);
                 }, 1000);
             },
 
             handleTreeClick() {
                 if (this.state.treeUnlocked) {
-                    this.showModal("已解锁", "再次体验 AR 特效？", [
+                    this.showModal("已解锁", "再次欣赏金色圣诞树？", [
                         { text: "取消", action: () => this.closeModal() },
                         { text: "进入 AR", action: () => { this.closeModal(); this.startArFlow(); } }
                     ]);
                 } else {
-                    this.showModal("尊贵的会员", "是否定制你的专属礼物？", [
+                    this.showModal("尊贵的会员", "是否定制你的专属圣诞礼物？", [
                         { text: "直接体验", action: () => { this.closeModal(); this.startArFlow(); } },
                         { text: "去定制", action: () => { this.closeModal(); this.switchView('view-customize'); } }
                     ]);
@@ -380,195 +332,225 @@
             },
 
             confirmWish() {
-                const val = document.getElementById('wish-input').value;
-                if(!val) return this.toast('请输入祝福');
+                if (!document.getElementById('wish-input').value.trim()) return this.toast("请输入祝福内容~");
                 this.startSantaFlow();
             },
 
-            // --- 圣诞老人 ---
             startSantaFlow() {
                 this.switchView('view-santa');
                 const img = document.getElementById('santa-story-img');
                 const hint = document.getElementById('santa-hint');
                 this.state.shakeCount = 0;
                 img.classList.remove('santa-appear');
-                hint.className = 'shake-alert'; hint.innerText = "飞快摇动你的手机！";
+                hint.className = 'shake-alert'; hint.innerHTML = "飞快摇动你的手机！<br>不然圣诞老人要撞上你了！";
                 setTimeout(() => img.classList.add('santa-appear'), 100);
 
                 this.shakeHandler = (e) => {
                     const acc = e.accelerationIncludingGravity;
-                    if(acc && (Math.abs(acc.x)+Math.abs(acc.y)+Math.abs(acc.z)) > 25) this.handleShake(1);
+                    if (!acc) return;
+                    if ((Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z)) > 25) this.handleShakeAction();
                 };
                 window.addEventListener('devicemotion', this.shakeHandler);
             },
-            triggerShakeMock() { this.handleShake(2); },
-            handleShake(n) {
-                this.state.shakeCount += n;
-                document.getElementById('santa-story-img').style.transform = `scale(1.15) rotate(${Math.random()*10-5}deg)`;
-                if(this.state.shakeCount > 8) {
+
+            triggerShakeMock() { this.handleShakeAction(2); },
+
+            handleShakeAction(amount = 1) {
+                this.state.shakeCount += amount;
+                document.getElementById('santa-story-img').style.transform = `scale(1.15) rotate(${Math.random()*6-3}deg)`;
+                if (this.state.shakeCount >= 8) {
                     window.removeEventListener('devicemotion', this.shakeHandler);
-                    this.finishSanta();
+                    this.finishSantaFlow();
                 }
             },
-            finishSanta() {
-                document.getElementById('santa-hint').style.color = 'gold';
-                document.getElementById('santa-hint').innerText = "收到信号！礼物派送中...";
+
+            finishSantaFlow() {
+                const hint = document.getElementById('santa-hint');
+                hint.className = 'shake-success'; hint.innerText = "信号已接收！礼物派送中...";
                 const gift = document.getElementById('flying-gift');
-                gift.style.transition = "all 0.8s ease"; gift.style.opacity=1; gift.style.transform="translate(-50%,-50%) scale(20)";
+                gift.style.transition = "all 0.8s cubic-bezier(0.6, 0.05, 0.2, 0.99)";
+                gift.style.opacity = 1;
+                gift.style.transform = "translate(-50%, -50%) scale(20)";
+                
                 setTimeout(() => {
-                    document.body.style.background="#000";
+                    document.body.style.background = "#000";
                     setTimeout(() => {
-                        gift.style.display='none'; document.body.style.background="";
+                        gift.style.display = 'none'; gift.style.transform = "translate(-50%, -50%) scale(0)";
+                        document.body.style.background = "";
                         this.state.passedSantaFlow = true;
                         this.startArFlow();
                     }, 500);
                 }, 800);
             },
 
-            // --- AR 流程 (集成 MediaPipe) ---
+            // --- AR 核心流程 ---
             async startArFlow() {
                 this.switchView('view-ar');
                 this.state.isArRunning = true;
-                const videoElement = document.getElementById('ar-camera-feed');
-                const tree = document.getElementById('ar-tree-container');
-                const timer = document.getElementById('ar-timer');
-                const loader = document.getElementById('mp-loader');
+                const videoEl = document.getElementById('ar-camera-feed');
+                const treeContainer = document.getElementById('ar-tree-container');
+                const timerEl = document.getElementById('ar-timer');
 
-                // 显示加载提示
-                loader.style.display = 'block';
-
-                // 1. 启动摄像头 (使用原生 getUserMedia 以便完全控制)
+                // 开启小窗口摄像头
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'user',
-                            width: { ideal: 640 }, // 限制分辨率提高 MediaPipe 性能
-                            height: { ideal: 480 }
-                        }, 
-                        audio: false 
-                    });
-                    videoElement.srcObject = stream;
-                    await videoElement.play();
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+                    videoEl.srcObject = stream;
+                    this.state.cameraStream = stream;
                 } catch (e) {
-                    console.error(e);
-                    this.toast("无法开启摄像头");
-                    loader.innerText = "摄像头开启失败";
-                    return;
+                    console.error("Camera Error:", e);
+                    // 即使没有摄像头，演示依然可以继续，只是小窗口黑屏
                 }
 
-                // 2. 树入场
-                tree.style.opacity = 1; 
-                tree.style.transform = "scale(1) rotateY(0deg)";
+                // 圣诞树入场
+                treeContainer.style.transform = "scale(0) rotateY(0deg)"; treeContainer.style.opacity = 0;
+                setTimeout(() => {
+                    treeContainer.style.opacity = 1;
+                    treeContainer.style.transform = "scale(1) rotateY(0deg)";
+                    setTimeout(() => this.initGestures(), 1000);
+                }, 500);
 
-                // 3. 启动 MediaPipe 帧循环
-                // 使用 send 方法手动发送视频帧
-                const sendFrame = async () => {
-                    if (!this.state.isArRunning) return;
-                    if (videoElement.readyState >= 2) {
-                        await this.hands.send({image: videoElement});
-                    }
-                    requestAnimationFrame(sendFrame);
-                };
-                sendFrame();
-
-                // 4. 倒计时
-                let t = 12;
-                timer.innerText = "12s";
+                // 倒计时
+                let timeLeft = 12;
+                timerEl.innerText = "12s";
                 this.arTimer = setInterval(() => {
-                    if(!this.state.isArRunning) return clearInterval(this.arTimer);
-                    t--; timer.innerText = t+"s";
-                    if(t<=0) {
+                    if (!this.state.isArRunning) return clearInterval(this.arTimer);
+                    timeLeft--; timerEl.innerText = timeLeft + "s";
+                    if (timeLeft <= 0) {
                         clearInterval(this.arTimer);
                         this.explodeTree();
                     }
                 }, 1000);
             },
 
+            // 手势控制：只控制 #ar-tree-container
+            initGestures() {
+                const touchSurface = document.getElementById('view-ar');
+                const target = document.getElementById('ar-tree-container');
+                let startX = 0, currentRotY = 0;
+                let startDist = 0, currentScale = 1;
+                let isDragging = false, isPinching = false;
+
+                const getDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+                touchSurface.ontouchstart = (e) => {
+                    if (e.touches.length === 1) {
+                        startX = e.touches[0].clientX; isDragging = true;
+                    } else if (e.touches.length === 2) {
+                        startDist = getDist(e.touches[0], e.touches[1]); isPinching = true;
+                    }
+                };
+                touchSurface.ontouchmove = (e) => {
+                    e.preventDefault();
+                    if (isDragging && e.touches.length === 1) {
+                        const deltaX = e.touches[0].clientX - startX;
+                        // 灵敏度 0.5
+                        const newRot = currentRotY + deltaX * 0.5;
+                        target.style.transform = `scale(${currentScale}) rotateY(${newRot}deg)`;
+                    } else if (isPinching && e.touches.length === 2) {
+                        const newDist = getDist(e.touches[0], e.touches[1]);
+                        const scaleDelta = (newDist / startDist) * currentScale;
+                        // 限制缩放范围 0.5 - 1.5
+                        target.style.transform = `scale(${Math.min(Math.max(scaleDelta, 0.5), 1.5)}) rotateY(${currentRotY}deg)`;
+                    }
+                };
+                touchSurface.ontouchend = (e) => {
+                    if (isDragging) {
+                        currentRotY += (e.changedTouches[0].clientX - startX) * 0.5; isDragging = false;
+                    }
+                    if (isPinching && e.touches.length < 2) {
+                        const newDist = getDist(e.changedTouches[0], e.touches[0] || e.changedTouches[1]);
+                        currentScale = Math.min(Math.max((newDist / startDist) * currentScale, 0.5), 1.5); isPinching = false;
+                    }
+                };
+            },
+
             stopCamera() {
-                this.state.isArRunning = false;
-                const v = document.getElementById('ar-camera-feed');
-                if(v.srcObject) {
-                    v.srcObject.getTracks().forEach(t=>t.stop());
-                    v.srcObject = null;
+                if (this.state.cameraStream) {
+                    this.state.cameraStream.getTracks().forEach(t => t.stop());
+                    this.state.cameraStream = null;
                 }
+                this.state.isArRunning = false;
             },
 
             explodeTree() {
                 const treeImg = document.getElementById('ar-tree-img');
                 const rect = treeImg.getBoundingClientRect();
-                treeImg.style.transition = "0.2s"; treeImg.style.filter = "brightness(5) drop-shadow(0 0 50px gold)";
+                treeImg.style.transition = "0.3s"; treeImg.style.filter = "brightness(5) drop-shadow(0 0 50px gold)";
                 setTimeout(() => {
                     treeImg.style.opacity = 0;
                     this.spawnExplosion(rect.left+rect.width/2, rect.top+rect.height/2);
                     this.stopCamera();
-                    setTimeout(() => this.finishAr(), 1500);
+                    setTimeout(() => this.handleArFinish(), 1500);
                 }, 300);
             },
 
-            finishAr() {
-                if(this.state.passedSantaFlow) {
+            handleArFinish() {
+                if (this.state.passedSantaFlow) {
                     this.state.treeUnlocked = true;
-                    document.getElementById('card-tree').classList.replace('locked','unlocked');
-                    document.querySelector('#card-tree .lock-tag').style.display='none';
-                    this.toast("🎉 体验完成！圣诞树已永久解锁！", 3000);
+                    const card = document.getElementById('card-tree');
+                    card.classList.remove('locked'); card.classList.add('unlocked');
+                    card.querySelector('.lock-tag').style.display = 'none';
+                    this.toast("🎉 体验完成！金色圣诞树已永久解锁！", 3000);
                     this.switchView('view-hero');
                     this.state.passedSantaFlow = false;
                 } else {
-                    this.showModal("体验结束", "想永久拥有它吗？", [
-                        { text: "回主页", action: () => { this.closeModal(); this.switchView('view-hero'); }},
-                        { text: "去定制", action: () => { this.closeModal(); this.switchView('view-customize'); }}
+                    this.showModal("体验结束", "想永久解锁并定制礼物吗？", [
+                        { text: "返回主页", action: () => { this.closeModal(); this.switchView('view-hero'); } },
+                        { text: "去定制", action: () => { this.closeModal(); this.switchView('view-customize'); } }
                     ]);
                 }
-                // 恢复树
-                setTimeout(() => {
-                    document.getElementById('ar-tree-img').style.opacity=1;
-                    document.getElementById('ar-tree-img').style.filter="";
-                }, 1000);
+                 setTimeout(() => {
+                    const treeImg = document.getElementById('ar-tree-img');
+                    treeImg.style.opacity = 1; treeImg.style.filter = "";
+                 }, 1000);
             },
 
-            // --- 辅助 ---
-            toast(msg) { console.log(msg); alert(msg); },
-            showModal(t,c,btns) {
-                document.getElementById('modal-title').innerText=t;
-                document.getElementById('modal-content').innerText=c;
-                const g = document.getElementById('modal-btns'); g.innerHTML='';
-                btns.forEach(b=>{
-                    const btn=document.createElement('button'); btn.className='btn-outline';
-                    btn.innerText=b.text; btn.onclick=b.action; g.appendChild(btn);
+            // --- 工具函数 ---
+            showModal(t, c, btns) {
+                document.getElementById('modal-title').innerText = t;
+                document.getElementById('modal-content').innerText = c;
+                const g = document.getElementById('modal-btns'); g.innerHTML = '';
+                btns.forEach(b => {
+                    const btn = document.createElement('button'); btn.className = 'btn-outline';
+                    btn.innerText = b.text; btn.onclick = b.action; g.appendChild(btn);
                 });
-                document.getElementById('modal').style.display='flex';
-                setTimeout(()=>document.getElementById('modal-box').classList.add('show'),10);
+                document.getElementById('modal').style.display = 'flex';
+                setTimeout(() => document.getElementById('modal-box').classList.add('show'), 10);
             },
             closeModal() {
                 document.getElementById('modal-box').classList.remove('show');
-                setTimeout(()=>document.getElementById('modal').style.display='none',300);
+                setTimeout(() => document.getElementById('modal').style.display = 'none', 300);
+            },
+            toast(msg, time=2000) { console.log(msg); alert(msg); },
+            spawnExplosion(x, y) {
+                const layer = document.getElementById('explosion-layer');
+                for (let i = 0; i < 60; i++) {
+                    const p = document.createElement('div'); p.className = 'boom-particle';
+                    const s = Math.random() * 8 + 3;
+                    p.style.cssText = `width:${s}px; height:${s}px; left:${x}px; top:${y}px;`;
+                    layer.appendChild(p);
+                    const angle = Math.random() * 6.28; const v = Math.random() * 200 + 80;
+                    p.animate([
+                        { transform: 'translate(0,0) scale(1)', opacity: 1 },
+                        { transform: `translate(${Math.cos(angle)*v}px, ${Math.sin(angle)*v}px) scale(0)`, opacity: 0 }
+                    ], { duration: 800 + Math.random()*600, easing: 'cubic-bezier(0,.9,.57,1)' }).onfinish = () => p.remove();
+                }
             },
             initParticles() {
                 const cvs = document.getElementById('particle-canvas');
                 const ctx = cvs.getContext('2d');
-                let w,h; const resize=()=>{w=cvs.width=window.innerWidth;h=cvs.height=window.innerHeight;};
-                window.addEventListener('resize',resize); resize();
-                const p = Array.from({length:50},()=>({x:Math.random()*w,y:Math.random()*h,s:Math.random()*2,v:Math.random()*0.5+0.2}));
-                const draw=()=>{
-                    ctx.clearRect(0,0,w,h); ctx.fillStyle="rgba(255,215,0,0.5)";
-                    p.forEach(i=>{i.y-=i.v;if(i.y<0)i.y=h;ctx.beginPath();ctx.arc(i.x,i.y,i.s,0,6.28);ctx.fill();});
+                let w, h; const resize = () => { w = cvs.width = window.innerWidth; h = cvs.height = window.innerHeight; };
+                window.addEventListener('resize', resize); resize();
+                const parts = Array.from({length: 50}, () => ({ x: Math.random()*w, y: Math.random()*h, s: Math.random()*2, sp: Math.random()*0.5+0.2 }));
+                function draw() {
+                    ctx.clearRect(0,0,w,h); ctx.fillStyle = "rgba(255, 215, 0, 0.5)";
+                    parts.forEach(p => {
+                        p.y -= p.sp; if(p.y < 0) p.y = h;
+                        ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
+                    });
                     requestAnimationFrame(draw);
-                };
-                draw();
-            },
-            spawnExplosion(x,y) {
-                const layer = document.getElementById('explosion-layer');
-                for(let i=0;i<60;i++) {
-                    const d = document.createElement('div'); d.className='boom-particle';
-                    const s = Math.random()*8+3;
-                    d.style.cssText=`width:${s}px;height:${s}px;left:${x}px;top:${y}px;`;
-                    layer.appendChild(d);
-                    const a = Math.random()*6.28; const v = Math.random()*200+80;
-                    d.animate([
-                        {transform:'translate(0,0) scale(1)', opacity:1},
-                        {transform:`translate(${Math.cos(a)*v}px,${Math.sin(a)*v}px) scale(0)`, opacity:0}
-                    ], {duration:800+Math.random()*600, easing:'cubic-bezier(0,.9,.57,1)'}).onfinish=()=>d.remove();
                 }
+                draw();
             }
         };
 
