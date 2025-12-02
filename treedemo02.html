@@ -20,7 +20,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
-        /* 画中画摄像头 (右上角) */
+        /* 画中画摄像头 */
         #input-video {
             position: fixed;
             top: 16px;
@@ -56,35 +56,39 @@
             align-items: center;
         }
 
-        /* 能量条 (震动触发反馈) */
+        /* 能量条容器 */
         #energy-bar-container {
             position: absolute;
-            bottom: 100px;
-            width: 200px;
-            height: 10px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 5px;
+            bottom: 120px;
+            width: 220px;
+            height: 12px;
+            background: rgba(50, 50, 50, 0.6);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 6px;
             overflow: hidden;
             display: none; /* 初始隐藏 */
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
+        /* 能量条本体 */
         #energy-bar {
             width: 0%;
             height: 100%;
-            background: linear-gradient(90deg, #ff8800, #ffd700);
-            transition: width 0.1s;
+            background: linear-gradient(90deg, #ff4e00, #ffae00, #ffd700);
+            transition: width 0.1s linear;
         }
 
         #instruction {
             margin-top: 30px;
             font-size: 16px;
             color: rgba(255, 255, 255, 0.9);
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.7);
             padding: 12px 24px;
             border-radius: 30px;
             text-align: center;
             border: 1px solid rgba(255, 215, 0, 0.3);
             backdrop-filter: blur(4px);
             transition: all 0.3s;
+            max-width: 80%;
         }
 
         #loading {
@@ -125,26 +129,31 @@
     </div>
 
     <script>
-        // === 全局配置 ===
+        // === 全局配置 (防误触调优版) ===
         const CONFIG = {
-            wishText: "Merry Christmas", // 粒子重组后的文字
-            shakeThreshold: 0.08,        // 震动检测阈值
-            spreadThreshold: 0.18,       // 手指张开阈值
-            energyDecay: 0.02,           // 能量衰减速度
-            energyGain: 0.15             // 能量增加速度
+            wishText: "Merry Christmas", 
+            
+            // 核心阈值调整
+            spreadRatio: 1.6,      // 手指长度需大于手掌长度的 1.6 倍才算张开 (防误触)
+            shakeThreshold: 3.0,   // 相对移动速度阈值 (必须剧烈晃动)
+            
+            // 能量机制 (让引爆变难)
+            energyGain: 0.03,      // 每次达标增加的能量 (很小，需要持续晃)
+            energyDecay: 0.05,     // 能量衰减速度 (比增加快，停下就会掉)
+            maxEnergy: 1.0
         };
 
         const state = {
             handDetected: false,
-            // 手部位置平滑
+            // 空间位置控制
             targetPos: new THREE.Vector3(0, 0, 0),
             currentPos: new THREE.Vector3(0, 0, 0),
             // 动作状态
             isSpreading: false,
             shakeEnergy: 0,
             isExploded: false,
-            // 粒子重组阶段
-            textParticles: [] 
+            lastHandTime: 0,
+            lastHandCenter: {x:0, y:0}
         };
 
         const canvas = document.getElementById('three-canvas');
@@ -171,7 +180,7 @@
         }
         const glowTex = createTexture();
 
-        // 文本粒子生成器
+        // 文本粒子目标生成
         function createTextTargets(text) {
             const c = document.createElement('canvas');
             const ctx = c.getContext('2d');
@@ -185,15 +194,12 @@
 
             const data = ctx.getImageData(0,0,c.width,c.height).data;
             const targets = [];
-            // 采样像素点
             for(let y=0; y<c.height; y+=4) {
                 for(let x=0; x<c.width; x+=4) {
-                    const alpha = data[(y*c.width+x)*4 + 3];
-                    if(alpha > 128) {
-                        // 映射到 3D 空间
+                    if(data[(y*c.width+x)*4 + 3] > 128) {
                         targets.push(new THREE.Vector3(
                             (x - c.width/2) * 0.015,
-                            -(y - c.height/2) * 0.015 + 0.5, // 稍微抬高
+                            -(y - c.height/2) * 0.015 + 0.5,
                             0
                         ));
                     }
@@ -209,7 +215,6 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             
             scene = new THREE.Scene();
-            // 深邃夜空背景
             scene.background = new THREE.Color('#020205');
             scene.fog = new THREE.FogExp2(0x020205, 0.05);
 
@@ -219,9 +224,8 @@
             treeGroup = new THREE.Group();
             scene.add(treeGroup);
 
-            createTree(); // 构建树
+            createTree(); 
             
-            // 灯光
             scene.add(new THREE.AmbientLight(0xffffff, 0.3));
             const dl = new THREE.DirectionalLight(0xffd700, 2);
             dl.position.set(2, 5, 5);
@@ -229,7 +233,7 @@
         }
 
         function createTree() {
-            // 1. 粒子树叶
+            // 粒子树叶
             const count = 4000;
             particleGeo = new THREE.BufferGeometry();
             const pos = [], target = [], color = [], size = [];
@@ -237,7 +241,6 @@
             const layers = 7;
             for(let i=0; i<count; i++) {
                 const layer = Math.floor(Math.random()*layers);
-                const h = 3.5;
                 const yBase = 1.5 - (layer * 0.6);
                 const rBase = 0.1 + (layer * 0.45);
                 
@@ -245,26 +248,23 @@
                 const r = Math.random() * rBase;
                 const y = yBase + (Math.random()-0.5)*0.5;
                 
-                pos.push(0, -5, 0); // 初始在地下
+                pos.push(0, -5, 0); 
                 target.push(Math.cos(angle)*r, y, Math.sin(angle)*r);
                 
-                // 颜色
                 const c = new THREE.Color().setHSL(0.1 + Math.random()*0.05, 1, 0.6);
                 color.push(c.r, c.g, c.b);
                 size.push(Math.random()*0.15 + 0.05);
             }
             
             particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            particleGeo.setAttribute('target', new THREE.Float32BufferAttribute(target, 3)); // 树形态目标
+            particleGeo.setAttribute('target', new THREE.Float32BufferAttribute(target, 3));
             particleGeo.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
             particleGeo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
             
-            // 预计算文字形态目标 (如果粒子不够，循环使用; 太多则截断)
             const textTargets = createTextTargets(CONFIG.wishText);
             const textAttr = [];
             for(let i=0; i<count; i++) {
                 const t = textTargets[i % textTargets.length];
-                // 随机一点偏移，避免重叠太死板
                 textAttr.push(t.x + (Math.random()-0.5)*0.1, t.y + (Math.random()-0.5)*0.1, t.z);
             }
             particleGeo.setAttribute('textTarget', new THREE.Float32BufferAttribute(textAttr, 3));
@@ -274,11 +274,10 @@
                 blending: THREE.AdditiveBlending, depthWrite: false,
                 transparent: true, opacity: 0.9
             });
-            
             particles = new THREE.Points(particleGeo, particleMat);
             treeGroup.add(particles);
 
-            // 2. 实体装饰球
+            // 实体装饰球
             const orbGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const orbMat = new THREE.MeshStandardMaterial({
                 color: 0xffaa00, metalness: 0.9, roughness: 0.1,
@@ -286,16 +285,12 @@
             });
             ornaments = new THREE.InstancedMesh(orbGeo, orbMat, 60);
             const dummy = new THREE.Object3D();
-            for(let i=0; i<60; i++) {
-                dummy.position.set(0, -10, 0); // 初始隐藏
-                dummy.updateMatrix();
-                ornaments.setMatrixAt(i, dummy.matrix);
-            }
-            treeGroup.add(ornaments);
-            
-            // 保存球的目标位置
             ornaments.userData.targets = [];
             for(let i=0; i<60; i++) {
+                dummy.position.set(0, -10, 0);
+                dummy.updateMatrix();
+                ornaments.setMatrixAt(i, dummy.matrix);
+                
                 const layer = Math.floor(Math.random()*layers);
                 const r = 0.2 + (layer * 0.45);
                 const angle = Math.random() * Math.PI * 2;
@@ -305,8 +300,9 @@
                     z: Math.sin(angle)*r
                 });
             }
+            treeGroup.add(ornaments);
 
-            // 3. 顶部星星
+            // 星星
             starMesh = new THREE.Mesh(
                 new THREE.OctahedronGeometry(0.3, 0),
                 new THREE.MeshBasicMaterial({ color: 0xffffff })
@@ -320,53 +316,39 @@
             treeGroup.add(starMesh);
         }
 
-        // === 动画逻辑 ===
+        // === 动画循环 ===
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             const time = clock.getElapsedTime();
 
             if (!state.isExploded) {
-                // === 正常 AR 操控模式 ===
-                
-                // 1. 平滑手势位置
-                // 手离得越远(handSize小)，树越远(scale小/z深)
-                // 逻辑反转：手收回(变小) -> 树拉近(变大/z靠近)
-                // 假设 handSize 范围 0.1(远) ~ 0.3(近)
-                // 目标：手小 -> scale大
-                
+                // 平滑位置跟随
                 state.currentPos.lerp(state.targetPos, 0.1);
                 
-                treeGroup.position.x = state.currentPos.x * 5; // 左右移动
-                treeGroup.position.y = state.currentPos.y * 3; // 上下移动
-                
-                // 旋转：随X移动自然旋转
+                treeGroup.position.x = state.currentPos.x * 5;
+                treeGroup.position.y = state.currentPos.y * 3;
                 treeGroup.rotation.y = state.currentPos.x * 2 + time * 0.1;
                 
-                // 缩放：由 "拉拽" 决定 (z值)
-                // targetPos.z 越大代表手越远(手越小)，此时树应该被“拉出来”变大
-                // map 0.5(手很小) -> scale 1.5; 0(手很大) -> scale 0.5
+                // 拉拽变大逻辑 (0.5 ~ 2.0)
                 let scale = 0.5 + state.targetPos.z * 1.5; 
                 scale = Math.max(0.5, Math.min(2.0, scale));
                 treeGroup.scale.setScalar(scale);
 
-                // 2. 粒子汇聚成树
+                // 粒子聚合动画
                 const pos = particleGeo.attributes.position.array;
                 const target = particleGeo.attributes.target.array;
-                
                 for(let i=0; i<pos.length; i++) {
-                    // 简单的弹性跟随
                     pos[i] += (target[i] - pos[i]) * 0.05;
                 }
                 particleGeo.attributes.position.needsUpdate = true;
 
-                // 3. 装饰球跟随
+                // 装饰物跟随
                 const dummy = new THREE.Object3D();
                 const oTargets = ornaments.userData.targets;
                 for(let i=0; i<60; i++) {
                     const t = oTargets[i];
                     dummy.position.set(t.x, t.y, t.z);
-                    // 加上呼吸动效
                     const s = 1 + Math.sin(time*3 + i)*0.2;
                     dummy.scale.setScalar(s);
                     dummy.updateMatrix();
@@ -374,26 +356,32 @@
                 }
                 ornaments.instanceMatrix.needsUpdate = true;
 
-                // 4. 星星跟随
                 starMesh.position.lerp(new THREE.Vector3(0, 2.1, 0), 0.05);
                 starMesh.rotation.y -= 0.02;
 
-                // 5. 震动能量逻辑
+                // 能量逻辑 (防误触升级版)
                 if(state.handDetected) {
-                    if (state.isSpreading && state.handVelocity > CONFIG.shakeThreshold) {
+                    if (state.isSpreading && state.shakeEnergy >= 0) {
+                        // 正在张开，且有震动，增加能量
+                        // 注意：这里需要配合 velocity 检测
                         state.shakeEnergy += CONFIG.energyGain;
-                        instructionEl.innerText = "⚡️ 能量蓄力中！保持张开并震动！";
+                        
+                        // 文字反馈
+                        const pct = Math.floor(state.shakeEnergy * 100);
+                        instructionEl.innerText = `⚡️ 蓄力中... ${pct}% (保持张开并晃动)`;
                         instructionEl.style.color = "#ffaa00";
-                        // 震动特效：树身抖动
-                        treeGroup.position.x += (Math.random()-0.5)*0.2;
+                        
+                        // 震动反馈
+                        treeGroup.position.x += (Math.random()-0.5) * 0.1 * state.shakeEnergy;
                     } else {
+                        // 没张开或者没动，能量快速衰减
                         state.shakeEnergy -= CONFIG.energyDecay;
-                        instructionEl.innerText = "🖐 张开五指并快速摇晃以引爆";
+                        instructionEl.innerText = "🖐 张开五指 + 快速摇晃 = 魔法";
                         instructionEl.style.color = "white";
                     }
+                    
                     state.shakeEnergy = Math.max(0, Math.min(1, state.shakeEnergy));
                     
-                    // 更新 UI 能量条
                     if(state.shakeEnergy > 0) {
                         energyContainer.style.display = 'block';
                         energyBar.style.width = (state.shakeEnergy * 100) + '%';
@@ -401,39 +389,35 @@
                         energyContainer.style.display = 'none';
                     }
 
-                    // 触发爆炸！
                     if(state.shakeEnergy >= 1) {
                         triggerExplosion();
                     }
+                } else {
+                    // 没检测到手，能量归零
+                    state.shakeEnergy = 0;
+                    energyContainer.style.display = 'none';
+                    instructionEl.innerText = "🖐 伸手即可唤醒圣诞树";
+                    instructionEl.style.color = "white";
                 }
 
             } else {
-                // === 爆炸/文字模式 ===
-                
-                // 粒子飞向文字目标
+                // 爆炸后：重组成文字
                 const pos = particleGeo.attributes.position.array;
                 const textT = particleGeo.attributes.textTarget.array;
                 
                 for(let i=0; i<pos.length; i+=3) {
-                    // 目标位置
                     const tx = textT[i];
                     const ty = textT[i+1];
                     const tz = textT[i+2];
                     
-                    // 缓动飞向文字
-                    pos[i] += (tx - pos[i]) * 0.04;
-                    pos[i+1] += (ty - pos[i+1]) * 0.04;
+                    pos[i] += (tx - pos[i]) * 0.04 + (Math.random()-0.5)*0.005;
+                    pos[i+1] += (ty - pos[i+1]) * 0.04 + (Math.random()-0.5)*0.005;
                     pos[i+2] += (tz - pos[i+2]) * 0.04;
-                    
-                    // 加一点随机漂浮
-                    pos[i] += (Math.random()-0.5)*0.005;
-                    pos[i+1] += (Math.random()-0.5)*0.005;
                 }
                 particleGeo.attributes.position.needsUpdate = true;
                 
-                // 旋转整个组展示文字
                 treeGroup.rotation.y = Math.sin(time*0.5) * 0.1;
-                treeGroup.scale.setScalar(1.2); // 放大一点看清楚
+                treeGroup.scale.setScalar(1.2);
             }
 
             renderer.render(scene, camera);
@@ -443,22 +427,16 @@
             state.isExploded = true;
             energyContainer.style.display = 'none';
             instructionEl.innerHTML = "✨ " + CONFIG.wishText + " ✨";
-            
-            // 隐藏实体装饰，只留粒子
             ornaments.visible = false;
             starMesh.visible = false;
             
-            // 瞬间炸开一下
+            // 炸开一下
             const pos = particleGeo.attributes.position.array;
-            for(let i=0; i<pos.length; i++) {
-                pos[i] += (Math.random()-0.5) * 5; 
-            }
+            for(let i=0; i<pos.length; i++) pos[i] += (Math.random()-0.5) * 8; 
             particleGeo.attributes.position.needsUpdate = true;
         }
 
-        // === 手势识别逻辑 ===
-        let lastHandPos = null;
-
+        // === 严格的手势识别逻辑 ===
         window.onload = async function() {
             const video = document.getElementById('input-video');
             const loading = document.getElementById('loading');
@@ -473,58 +451,71 @@
                     state.handDetected = true;
                     const lm = results.multiHandLandmarks[0];
                     
-                    // 1. 计算手掌中心 (用于位移)
-                    // 0:腕, 9:中指根
-                    const cx = lm[9].x; 
-                    const cy = lm[9].y;
+                    // 1. 基准尺度：手掌大小 (手腕到中指根)
+                    const wrist = lm[0];
+                    const middleRoot = lm[9];
+                    const palmSize = Math.hypot(wrist.x - middleRoot.x, wrist.y - middleRoot.y);
                     
-                    // 映射：x(0~1) -> (-1 ~ 1), y(0~1) -> (1 ~ -1)
-                    // 注意镜像：MediaPipe x=0是左边(预览是右边), x=1是右边
-                    state.targetPos.x = (cx - 0.5) * -3; // 反向移动符合直觉
+                    // 2. 位置控制 (不变)
+                    const cx = middleRoot.x; 
+                    const cy = middleRoot.y;
+                    state.targetPos.x = (cx - 0.5) * -3; 
                     state.targetPos.y = (0.5 - cy) * 3;
-
-                    // 2. 计算距离/拉拽感 (Z轴)
-                    // 手掌大小 (腕到中指根距离)
-                    const dx = lm[0].x - lm[9].x;
-                    const dy = lm[0].y - lm[9].y;
-                    const palmSize = Math.sqrt(dx*dx + dy*dy); // 约 0.1(远) ~ 0.4(近)
                     
-                    // 逻辑：palmSize 小 (远) -> z 大 (拉近)
-                    // 归一化 0.1~0.4 -> 0~1
+                    // 拉拽距离：palmSize 越大(近) -> 归一化后越小 -> 树越远
+                    // 我们想要: 手越近(大) -> 树推远(小); 手越远(小) -> 树拉近(大)
+                    // palmSize 约 0.1(远) ~ 0.4(近)
                     const distFactor = Math.max(0, Math.min(1, (0.4 - palmSize) / 0.3));
-                    state.targetPos.z = distFactor; // 0(没拉) ~ 1(拉满)
+                    state.targetPos.z = distFactor; 
 
-                    // 3. 检测张开五指
-                    // 简单算法：指尖到指根距离 > 阈值
-                    // 8:食指尖, 5:食指根 ...
-                    const tips = [8, 12, 16, 20];
-                    const roots = [5, 9, 13, 17];
-                    let spreadCount = 0;
+                    // 3. 严格的张开检测 (Scale-Invariant)
+                    // 计算每个指尖到手腕的距离，必须显著大于手掌长度
+                    const tips = [8, 12, 16, 20]; // 食指到小指尖
+                    let openFingers = 0;
+                    
                     for(let i=0; i<4; i++) {
-                        const d = Math.hypot(lm[tips[i]].x - lm[roots[i]].x, lm[tips[i]].y - lm[roots[i]].y);
-                        if(d > 0.08) spreadCount++; // 阈值可调
-                    }
-                    // 拇指单独算
-                    const thumbD = Math.hypot(lm[4].x - lm[17].x, lm[4].y - lm[17].y);
-                    if(thumbD > 0.25) spreadCount++;
-
-                    state.isSpreading = spreadCount >= 4;
-
-                    // 4. 检测震动速度
-                    const now = Date.now();
-                    if(lastHandPos) {
-                        const dt = (now - lastHandPos.time) / 1000;
-                        if(dt > 0) {
-                            const dist = Math.hypot(cx - lastHandPos.x, cy - lastHandPos.y);
-                            state.handVelocity = dist / dt; // 速度
+                        const tipDist = Math.hypot(lm[tips[i]].x - wrist.x, lm[tips[i]].y - wrist.y);
+                        // 阈值：指尖距离必须 > 手掌长度 * 1.6
+                        if (tipDist > palmSize * CONFIG.spreadRatio) {
+                            openFingers++;
                         }
                     }
-                    lastHandPos = {x: cx, y: cy, time: now};
+                    // 拇指单独判断 (离小指根远)
+                    const thumbTip = lm[4];
+                    const pinkyRoot = lm[17];
+                    const thumbDist = Math.hypot(thumbTip.x - pinkyRoot.x, thumbTip.y - pinkyRoot.y);
+                    if (thumbDist > palmSize * 1.2) openFingers++;
+
+                    // 必须 5 指全开
+                    const isSpreadingNow = openFingers >= 5;
+
+                    // 4. 相对速度检测 (Scale-Invariant)
+                    const now = Date.now();
+                    let isShaking = false;
+                    
+                    if (state.lastHandTime > 0) {
+                        const dt = (now - state.lastHandTime) / 1000;
+                        if (dt > 0) {
+                            // 归一化移动距离 (除以 palmSize)
+                            const moveDist = Math.hypot(cx - state.lastHandCenter.x, cy - state.lastHandCenter.y);
+                            const relativeSpeed = (moveDist / palmSize) / dt; // 每秒移动多少个手掌长度
+                            
+                            if (relativeSpeed > CONFIG.shakeThreshold) {
+                                isShaking = true;
+                            }
+                        }
+                    }
+                    
+                    // 更新状态：只有同时满足 张开 + 晃动 才算有效
+                    state.isSpreading = isSpreadingNow && isShaking;
+
+                    state.lastHandTime = now;
+                    state.lastHandCenter = {x: cx, y: cy};
 
                 } else {
                     state.handDetected = false;
-                    state.shakeEnergy = 0;
-                    // 无手时回正
+                    // 没检测到手时，能量快速清空
+                    state.shakeEnergy -= 0.1;
                     state.targetPos.set(0, 0, 0); 
                 }
             });
@@ -541,7 +532,6 @@
             animate();
         };
 
-        // 窗口大小调整
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
