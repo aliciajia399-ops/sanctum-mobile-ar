@@ -1,369 +1,523 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-  />
-  <title>Golden AR Tree Demo</title>
-  <style>
-    :root {
-      --gold: #ffd700;
-      --gold-soft: rgba(255, 215, 0, 0.6);
-      --bg-dark: #02030a;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Luxury Golden AR Tree</title>
+    
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            /* 1. 目标视觉风格：深色夜空背景 */
+            background: radial-gradient(circle at 50% 100%, #1a1200 0%, #050505 60%, #000 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #ffd700;
+        }
 
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: radial-gradient(circle at 20% 0%, #10152a 0, #02030a 55%, #000 100%);
-      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-      color: var(--gold);
-    }
+        /* 视频预览小窗口 (右上角) */
+        #input-video {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            width: 100px;
+            height: auto;
+            aspect-ratio: 3/4;
+            object-fit: cover;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
+            transform: scaleX(-1);
+            z-index: 20;
+            background: #000;
+        }
 
-    .root {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+        /* 主 Canvas，用于 Three.js 渲染 */
+        #three-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
 
-    /* 中间画树的画布 */
-    #treeCanvas {
-      width: min(90vw, 480px);
-      height: min(120vw, 640px);
-    }
+        /* UI 覆盖层 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 15;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
 
-    /* 小窗口前置摄像头预览：右上角缩小 */
-    .camera-preview {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      width: 110px;
-      height: 150px;
-      border-radius: 14px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 215, 0, 0.5);
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
-      background: #000;
-      z-index: 10;
-    }
+        /* 顶部倒计时 */
+        #timer {
+            margin-top: 30px;
+            font-size: 48px;
+            font-weight: 800;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+        }
 
-    #cameraVideo {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1); /* 镜像自拍 */
-    }
+        /* 提示文字 */
+        #instruction {
+            margin-top: 15px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 20px;
+            text-align: center;
+            border: 1px solid rgba(255,215,0,0.2);
+        }
 
-    /* 顶部倒计时 */
-    .timer-badge {
-      position: fixed;
-      top: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 32px;
-      font-weight: 700;
-      text-shadow: 0 0 10px #000;
-    }
+        /* 最终祝福文字 */
+        #final-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            font-weight: bold;
+            color: #ffd700;
+            text-shadow: 0 0 30px rgba(255, 165, 0, 1);
+            opacity: 0;
+            transition: opacity 1s ease-in;
+            text-align: center;
+            width: 90%;
+            z-index: 30;
+        }
 
-    /* 底部提示文案 */
-    .hint-box {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 16px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 215, 0, 0.5);
-      background: rgba(0, 0, 0, 0.7);
-      font-size: 12px;
-      text-align: center;
-      line-height: 1.4;
-      color: #ffe9a0;
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
-    }
-
-    .hint-title {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 4px;
-      color: var(--gold);
-    }
-  </style>
+        /* 加载遮罩 */
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #050505;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #ffd700;
+            font-size: 16px;
+            flex-direction: column;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,215,0,0.3);
+            border-top: 3px solid #ffd700;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
-  <div class="root">
-    <canvas id="treeCanvas"></canvas>
-  </div>
 
-  <!-- 小窗口摄像头 -->
-  <div class="camera-preview">
-    <video id="cameraVideo" autoplay playsinline muted></video>
-  </div>
+    <video id="input-video" playsinline></video>
+    <canvas id="three-canvas"></canvas>
 
-  <!-- 倒计时 -->
-  <div id="timer" class="timer-badge">12s</div>
+    <div id="ui-layer">
+        <div id="timer">12</div>
+        <div id="instruction">
+            🖐 伸手控制 AR 圣诞树<br>
+            <span style="font-size:12px; opacity:0.8">聚合中... 请稍候</span>
+        </div>
+        <div id="final-message">✨ 闺蜜今年圣诞一起暴富！✨</div>
+    </div>
 
-  <!-- 底部提示 -->
-  <div class="hint-box">
-    <div class="hint-title">✨ 金色圣诞树 Demo</div>
-    <div>当前版：自动旋转预览<br />后续会接入「真正的手势识别」控制旋转与缩放</div>
-  </div>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>启动金色 AR 引擎中...</div>
+    </div>
 
-  <script>
-    // ========= 1. 画布初始 =========
-    const canvas = document.getElementById("treeCanvas");
-    const ctx = canvas.getContext("2d");
-    function resizeCanvas() {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * window.devicePixelRatio;
-      canvas.height = rect.height * window.devicePixelRatio;
-      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-    }
-    window.addEventListener("resize", resizeCanvas);
-    resizeCanvas();
+    <script>
+        // === 全局状态 ===
+        const state = {
+            targetAngle: 0, 
+            currentAngle: 0,
+            targetScale: 1,
+            currentScale: 1,
+            isExploded: false,
+            timeLeft: 12,
+            handDetected: false,
+            
+            // 动画状态机：0=CHAOS(混沌), 1=FORMING(聚合中), 2=FORMED(成型可控)
+            animPhase: 0, 
+            startTime: Date.now()
+        };
 
-    // ========= 2. 简单相机预览（右上角小窗） =========
-    const videoEl = document.getElementById("cameraVideo");
-    async function initCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-          audio: false,
-        });
-        videoEl.srcObject = stream;
-      } catch (e) {
-        console.log("Camera error:", e);
-      }
-    }
-    initCamera();
+        const canvas = document.getElementById('three-canvas');
+        const timerElement = document.getElementById('timer');
+        const msgElement = document.getElementById('final-message');
+        const instructionEl = document.getElementById('instruction');
 
-    // ========= 3. 画一棵「发光金色圣诞树」 =========
-    function drawGoldenTree(t) {
-      const w = canvas.width / window.devicePixelRatio;
-      const h = canvas.height / window.devicePixelRatio;
-      ctx.clearRect(0, 0, w, h);
+        // === Three.js 场景变量 ===
+        let scene, camera, renderer;
+        let treeGroup; // 包含整个树的容器
+        let particlesGeometry; // 存储粒子位置用于动画
+        let particlesMaterial;
+        let starSprite;
 
-      const cx = w / 2;
-      const baseY = h * 0.8;
-      const treeH = h * 0.7;
-      const time = t * 0.001;
-
-      // —— 夜空金雾背景 ——
-      const bgGrad = ctx.createRadialGradient(
-        cx,
-        baseY - treeH * 0.35,
-        treeH * 0.05,
-        cx,
-        baseY - treeH * 0.35,
-        treeH * 1.0
-      );
-      bgGrad.addColorStop(0, "rgba(255, 215, 0, 0.18)");
-      bgGrad.addColorStop(0.4, "rgba(255, 215, 0, 0.06)");
-      bgGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // —— 背景星点 ——
-      ctx.save();
-      for (let i = 0; i < 120; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const r = treeH * (0.15 + 0.55 * Math.random());
-        const x = cx + Math.cos(ang) * r;
-        const y = baseY - treeH * 0.4 + Math.sin(ang) * r * 0.6;
-        const size = Math.random() * 1.4 + 0.3;
-        const twinkle = 0.4 + 0.4 * Math.sin(time * 2 + i);
-        ctx.fillStyle = `rgba(255, 240, 190, ${twinkle})`;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-
-      // —— 树身（多层发光云雾三角形） ——
-      const layers = 7;
-      for (let i = 0; i < layers; i++) {
-        const p = i / (layers - 1); // 0~1
-        const topY = baseY - treeH * (1 - p * 0.95);
-        const bottomY = baseY - treeH * (1 - p - 0.12);
-        const halfW = (1 - p * 0.9) * (w * 0.23);
-
-        const sway = Math.sin(time * 1.4 + p * 4) * (4 * (1 - p));
-
-        const grad = ctx.createLinearGradient(cx, topY, cx, bottomY);
-        grad.addColorStop(0, "rgba(255, 255, 230, 0.95)");
-        grad.addColorStop(0.35, "rgba(255, 235, 170, 0.98)");
-        grad.addColorStop(0.8, "rgba(210, 150, 40, 0.95)");
-        grad.addColorStop(1, "rgba(130, 80, 10, 0.9)");
-
-        ctx.save();
-        ctx.shadowColor = "rgba(255, 215, 0, 0.95)";
-        ctx.shadowBlur = 24;
-
-        ctx.beginPath();
-        ctx.moveTo(cx + sway * 0.4, topY);
-        ctx.quadraticCurveTo(
-          cx - halfW * 0.3 + sway * 0.2,
-          (topY + bottomY) / 2,
-          cx - halfW + sway,
-          bottomY
-        );
-        ctx.lineTo(cx + halfW + sway, bottomY);
-        ctx.quadraticCurveTo(
-          cx + halfW * 0.3 + sway * 0.2,
-          (topY + bottomY) / 2,
-          cx + sway * 0.4,
-          topY
-        );
-        ctx.closePath();
-        ctx.fillStyle = grad;
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // —— 金色丝带 ——
-      ctx.save();
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "rgba(255, 255, 200, 1)";
-      ctx.shadowBlur = 16;
-      const bandCount = 3;
-      for (let i = 0; i < bandCount; i++) {
-        const p = 0.32 + i * 0.16;
-        const y = baseY - treeH * p;
-        const bandW = w * (0.26 - i * 0.03);
-        ctx.strokeStyle = "rgba(255, 245, 210, 0.95)";
-        ctx.beginPath();
-        ctx.moveTo(cx - bandW, y);
-        ctx.quadraticCurveTo(
-          cx + Math.sin(time * 1.3 + i) * 30,
-          y + 8 * Math.sin(time * 2 + i),
-          cx + bandW,
-          y + 4
-        );
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // —— 金币 / 元宝 / 宝石装饰 ——
-      const ornaments = [
-        { x: -0.18, y: 0.40, type: "coin" },
-        { x: 0.20, y: 0.42, type: "gem" },
-        { x: -0.24, y: 0.58, type: "ingot" },
-        { x: 0.22, y: 0.63, type: "coin" },
-        { x: -0.10, y: 0.70, type: "gem" },
-        { x: 0.06, y: 0.33, type: "ingot" },
-        { x: 0.0, y: 0.50, type: "coin" },
-      ];
-
-      ornaments.forEach((o, idx) => {
-        const ox = cx + o.x * w * 0.5;
-        const oy = baseY - treeH * o.y;
-        const pulse = 1 + 0.15 * Math.sin(time * 3 + idx);
-        ctx.save();
-        ctx.translate(ox, oy);
-        ctx.scale(pulse, pulse);
-        ctx.shadowColor = "rgba(255, 215, 0, 1)";
-        ctx.shadowBlur = 18;
-
-        if (o.type === "coin") {
-          const r = 7;
-          const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-          grad.addColorStop(0, "#fffbe0");
-          grad.addColorStop(0.4, "#ffe58a");
-          grad.addColorStop(1, "#d89c1f");
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.arc(0, 0, r, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (o.type === "ingot") {
-          ctx.fillStyle = "#ffd700";
-          ctx.beginPath();
-          ctx.moveTo(-10, 4);
-          ctx.lineTo(0, -6);
-          ctx.lineTo(10, 4);
-          ctx.quadraticCurveTo(0, 10, -10, 4);
-          ctx.closePath();
-          ctx.fill();
-        } else if (o.type === "gem") {
-          ctx.fillStyle = "#fff3b0";
-          ctx.beginPath();
-          ctx.moveTo(0, -8);
-          ctx.lineTo(7, 0);
-          ctx.lineTo(0, 8);
-          ctx.lineTo(-7, 0);
-          ctx.closePath();
-          ctx.fill();
+        // 生成发光纹理 (模拟 Bloom 效果)
+        function createGlowTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(0.2, 'rgba(255, 215, 0, 0.8)');
+            grad.addColorStop(0.5, 'rgba(255, 140, 0, 0.2)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 32, 32);
+            return new THREE.CanvasTexture(canvas);
         }
-        ctx.restore();
-      });
 
-      // —— 顶部发光星星 ——
-      const starY = baseY - treeH * 1.05;
-      const starR = 14;
-      ctx.save();
-      ctx.translate(cx, starY);
-      ctx.rotate(Math.sin(time * 1.5) * 0.15);
-      ctx.shadowColor = "rgba(255, 255, 220, 1)";
-      ctx.shadowBlur = 25;
-      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, starR * 1.4);
-      grad.addColorStop(0, "#fffdf0");
-      grad.addColorStop(0.4, "#ffe07a");
-      grad.addColorStop(1, "rgba(255, 215, 0, 0)");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      for (let i = 0; i < 5; i++) {
-        const angle = (i * 2 * Math.PI) / 5 - Math.PI / 2;
-        const x1 = Math.cos(angle) * starR;
-        const y1 = Math.sin(angle) * starR;
-        const x2 = Math.cos(angle + Math.PI / 5) * (starR / 2.3);
-        const y2 = Math.sin(angle + Math.PI / 5) * (starR / 2.3);
-        if (i === 0) ctx.moveTo(x1, y1);
-        else ctx.lineTo(x1, y1);
-        ctx.lineTo(x2, y2);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
+        const glowTexture = createGlowTexture();
 
-    // ========= 4. 动画 & 倒计时 =========
-    let startTime = null;
-    let remaining = 12;
-    const timerEl = document.getElementById("timer");
+        // === 初始化 Three.js 场景 ===
+        function initThree() {
+            // 渲染器：开启透明背景
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                alpha: true,
+                antialias: true
+            });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0); // 完全透明，透出 CSS 的夜空背景
 
-    function loop(timestamp) {
-      if (!startTime) startTime = timestamp;
-      const elapsed = (timestamp - startTime) / 1000;
-      const left = Math.max(0, 12 - elapsed);
-      const intLeft = Math.ceil(left);
-      if (intLeft !== remaining) {
-        remaining = intLeft;
-        timerEl.textContent = remaining + "s";
-      }
+            scene = new THREE.Scene();
 
-      drawGoldenTree(timestamp);
+            // 相机
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0.5, 6); // 稍微放低视角，仰视树
 
-      if (left > 0) {
-        requestAnimationFrame(loop);
-      } else {
-        timerEl.textContent = "0s";
-      }
-    }
+            // 创建树的组
+            treeGroup = new THREE.Group();
+            scene.add(treeGroup);
 
-    requestAnimationFrame(loop);
-  </script>
+            // 构建奢华粒子树
+            buildLuxuryTree();
+            
+            // 监听窗口大小
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // === 构建树体 (Chaos -> Formed 逻辑) ===
+        function buildLuxuryTree() {
+            // 粒子总数
+            const particleCount = 4000;
+            particlesGeometry = new THREE.BufferGeometry();
+            
+            const positions = [];       // 当前位置
+            const targetPositions = []; // 树的目标位置 (FORMED)
+            const chaosPositions = [];  // 初始随机位置 (CHAOS)
+            const colors = [];
+            const sizes = [];
+
+            const colorPalette = [
+                new THREE.Color('#FFD700'), // 纯金
+                new THREE.Color('#FFF8DC'), // 玉米丝色(高光)
+                new THREE.Color('#DAA520'), // 金麒麟色(暗部)
+            ];
+
+            // 树的形状参数
+            const treeHeight = 3.5;
+            const treeRadiusBase = 1.4;
+
+            for (let i = 0; i < particleCount; i++) {
+                // 1. 生成树形目标位置 (圆锥体分布)
+                // y: -1.5 到 +2.0
+                const p = Math.random();
+                const y = -1.5 + p * treeHeight;
+                // 半径随高度变小
+                const r = (1 - p) * treeRadiusBase; 
+                // 螺旋分布 + 随机抖动 = 自然松针感
+                const angle = i * 0.1 + Math.random() * Math.PI * 2;
+                // 填充圆锥内部
+                const radius = Math.random() * r; 
+                
+                const tx = Math.cos(angle) * radius;
+                const tz = Math.sin(angle) * radius;
+                const ty = y;
+
+                targetPositions.push(tx, ty, tz);
+
+                // 2. 生成混沌初始位置 (散落在屏幕外或周围)
+                const cx = (Math.random() - 0.5) * 15;
+                const cy = (Math.random() - 0.5) * 15;
+                const cz = (Math.random() - 0.5) * 10;
+                chaosPositions.push(cx, cy, cz);
+                
+                // 初始位置设为混沌
+                positions.push(cx, cy, cz);
+
+                // 3. 颜色和大小
+                const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                colors.push(color.r, color.g, color.b);
+
+                // 偶尔有一些大一点的粒子作为“金球”
+                if (Math.random() > 0.95) {
+                    sizes.push(0.15 + Math.random() * 0.1); // 装饰物
+                } else {
+                    sizes.push(0.04 + Math.random() * 0.04); // 金粉/叶子
+                }
+            }
+
+            particlesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            particlesGeometry.setAttribute('targetPos', new THREE.Float32BufferAttribute(targetPositions, 3));
+            particlesGeometry.setAttribute('chaosPos', new THREE.Float32BufferAttribute(chaosPositions, 3));
+            particlesGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            particlesGeometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+
+            // 材质：使用 AdditiveBlending 实现发光效果
+            particlesMaterial = new THREE.PointsMaterial({
+                size: 0.1,
+                vertexColors: true,
+                map: glowTexture,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            // ShaderMaterial 会更好，但为了保持单文件简洁，这里用 Points + size缩放逻辑
+            // 为了让 size 属性生效，我们需要修改一下 PointsMaterial (可选，这里直接用统一size简单处理，或者用Shader)
+            // 为了简单起见，这里直接创建 Points
+            const particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
+            treeGroup.add(particleSystem);
+
+            // 添加顶部星星 (Sprite)
+            const starMaterial = new THREE.SpriteMaterial({ 
+                map: glowTexture, 
+                color: 0xffffee, 
+                blending: THREE.AdditiveBlending 
+            });
+            starSprite = new THREE.Sprite(starMaterial);
+            starSprite.position.set(0, 2.1, 0); // 树顶
+            starSprite.scale.set(0, 0, 0); // 初始隐藏
+            treeGroup.add(starSprite);
+            
+            // 添加一个点光源增强立体感
+            const pointLight = new THREE.PointLight(0xffd700, 2, 10);
+            pointLight.position.set(0, 1, 2);
+            treeGroup.add(pointLight);
+        }
+
+        // === 动画循环 ===
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = Date.now();
+            const elapsed = (now - state.startTime) / 1000; // 秒
+
+            // 1. 状态机逻辑：Chaos -> Formed
+            if (!state.isExploded) {
+                // 0~3秒：聚合过程
+                if (elapsed < 3) {
+                    state.animPhase = 1;
+                    const progress = elapsed / 3; 
+                    // 缓动函数 easeOutCubic
+                    const t = 1 - Math.pow(1 - progress, 3);
+                    
+                    updateParticlesPosition(t);
+                    
+                    // 星星慢慢变大
+                    const starScale = t * 0.8;
+                    starSprite.scale.set(starScale, starScale, starScale);
+                    
+                    instructionEl.innerHTML = `✨ 金色粒子聚合中... ${(progress*100).toFixed(0)}%`;
+                } 
+                // 3秒后：成型，允许控制
+                else {
+                    if (state.animPhase === 1) {
+                        state.animPhase = 2;
+                        instructionEl.innerHTML = `👋 左右移动旋转 · 前后移动缩放`;
+                    }
+                    
+                    // 持续的微小呼吸动画
+                    const breathe = Math.sin(now * 0.002) * 0.05;
+                    
+                    // 手势控制插值
+                    const lerpSpeed = 0.1;
+                    state.currentAngle += (state.targetAngle - state.currentAngle) * lerpSpeed;
+                    state.currentScale += (state.targetScale - state.currentScale) * lerpSpeed;
+
+                    // 应用变换
+                    treeGroup.rotation.y = state.currentAngle + (now * 0.0005); // 叠加一点点自转
+                    const s = state.currentScale + breathe;
+                    treeGroup.scale.set(s, s, s);
+                    
+                    // 星星闪烁
+                    starSprite.material.opacity = 0.7 + 0.3 * Math.sin(now * 0.005);
+                }
+            } else {
+                // 爆炸后逻辑
+                updateExplosion();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // 更新粒子位置 (Lerp: Chaos -> Target)
+        function updateParticlesPosition(t) {
+            const positions = particlesGeometry.attributes.position.array;
+            const targets = particlesGeometry.attributes.targetPos.array;
+            const chaos = particlesGeometry.attributes.chaosPos.array;
+            
+            for (let i = 0; i < positions.length; i++) {
+                // pos = chaos + (target - chaos) * t
+                positions[i] = chaos[i] + (targets[i] - chaos[i]) * t;
+            }
+            particlesGeometry.attributes.position.needsUpdate = true;
+        }
+
+        // 爆炸动画逻辑 (简单的向外飞散)
+        function explodeTree() {
+            state.isExploded = true;
+            timerElement.style.display = 'none';
+            instructionEl.style.display = 'none';
+            
+            // 记录当前位置作为爆炸起点
+            const positions = particlesGeometry.attributes.position.array;
+            // 为每个粒子生成随机速度向量
+            particlesGeometry.userData.velocities = [];
+            for(let i=0; i < positions.length / 3; i++) {
+                const vx = (Math.random() - 0.5) * 0.5;
+                const vy = (Math.random() - 0.5) * 0.5;
+                const vz = (Math.random() - 0.5) * 0.5;
+                particlesGeometry.userData.velocities.push(vx, vy, vz);
+            }
+            
+            // 显示祝福语
+            msgElement.style.opacity = 1;
+            setTimeout(() => { msgElement.style.opacity = 0; }, 4000);
+        }
+
+        function updateExplosion() {
+            const positions = particlesGeometry.attributes.position.array;
+            const vels = particlesGeometry.userData.velocities;
+            
+            if (!vels) return;
+
+            for(let i=0; i < positions.length / 3; i++) {
+                positions[i*3] += vels[i*3];     // x
+                positions[i*3+1] += vels[i*3+1]; // y
+                positions[i*3+2] += vels[i*3+2]; // z
+                
+                // 加一点重力
+                vels[i*3+1] -= 0.005;
+            }
+            particlesGeometry.attributes.position.needsUpdate = true;
+            
+            // 慢慢消失
+            if (particlesMaterial.opacity > 0) {
+                particlesMaterial.opacity -= 0.01;
+            }
+        }
+
+        // === 应用启动逻辑 ===
+        window.onload = async function() {
+            initThree();
+            animate(); // 启动渲染循环
+
+            const videoElement = document.getElementById('input-video');
+            const loadingElement = document.getElementById('loading');
+            const timerElement = document.getElementById('timer');
+
+            // 初始化 MediaPipe
+            const hands = new Hands({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onResults);
+
+            const cameraUtils = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 640,
+                height: 480
+            });
+            
+            try {
+                await cameraUtils.start();
+                loadingElement.style.display = 'none'; 
+                startCountdown(); 
+            } catch (err) {
+                console.error(err);
+                loadingElement.innerHTML = "<div>无法开启摄像头</div><div style='font-size:14px; opacity:0.7'>请使用 HTTPS</div>";
+            }
+
+            // MediaPipe 手势处理
+            function onResults(results) {
+                if (state.animPhase < 2) return; // 还没聚合完，不响应手势
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    state.handDetected = true;
+                    const landmarks = results.multiHandLandmarks[0];
+
+                    // X 坐标 -> 旋转 (-60 ~ +60度 -> -1 ~ 1 弧度)
+                    const palmX = landmarks[9].x; 
+                    state.targetAngle = (palmX - 0.5) * 2.5;
+
+                    // 距离 -> 缩放
+                    const dx = landmarks[0].x - landmarks[9].x;
+                    const dy = landmarks[0].y - landmarks[9].y;
+                    const distance = Math.sqrt(dx*dx + dy*dy);
+                    
+                    const scaleFactor = Math.min(Math.max(distance * 4, 0.7), 1.4);
+                    state.targetScale = scaleFactor;
+                } else {
+                    state.handDetected = false;
+                    // 无手时缓慢回正
+                    state.targetAngle = 0;
+                    state.targetScale = 1;
+                }
+            }
+
+            function startCountdown() {
+                const timerId = setInterval(() => {
+                    if (state.timeLeft > 0) {
+                        state.timeLeft--;
+                        timerElement.innerText = state.timeLeft;
+                    } else {
+                        clearInterval(timerId);
+                        explodeTree();
+                    }
+                }, 1000);
+            }
+        };
+    </script>
 </body>
 </html>
