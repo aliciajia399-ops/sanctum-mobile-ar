@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Golden AR Christmas Tree</title>
+    <title>Golden AR Christmas Tree - Starry Night</title>
     
     <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
     
@@ -16,32 +16,44 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #000;
+            /* 夜空渐变背景 */
+            background:
+                radial-gradient(circle at 20% 20%, rgba(255,215,0,0.1), transparent 60%),
+                radial-gradient(circle at 80% 80%, rgba(255,215,0,0.08), transparent 55%),
+                radial-gradient(circle at 50% 0%, rgba(255,255,255,0.05), transparent 50%),
+                #04050b;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #ffd700;
         }
 
-        /* 视频背景层 */
+        /* 核心修改：摄像头改为右上角小窗口 
+           不再全屏铺满背景
+        */
         #input-video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            width: 120px;
+            height: auto;
+            aspect-ratio: 3/4; /* 保持一定的比例 */
             object-fit: cover;
-            transform: scaleX(-1); /* 镜像翻转，更符合自拍直觉 */
-            z-index: 0;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
+            transform: scaleX(-1); /* 镜像翻转，符合自拍直觉 */
+            z-index: 20;
+            background: #000; /* 加载前显示黑底 */
         }
 
-        /* Three.js 渲染层 */
+        /* Three.js 渲染层，全屏叠加在背景上 */
         #three-canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 1;
-            /* 也要镜像翻转，以便和视频对齐 */
-            transform: scaleX(-1); 
+            z-index: 10;
+            /* 保持居中，不翻转画布本身，只翻转控制逻辑 */
         }
 
         /* UI 覆盖层 */
@@ -51,7 +63,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 2;
+            z-index: 15;
             pointer-events: none; /* 让事件穿透 */
             display: flex;
             flex-direction: column;
@@ -60,22 +72,25 @@
 
         /* 顶部倒计时 */
         #timer {
-            margin-top: 20px;
+            margin-top: 30px;
             font-size: 48px;
-            font-weight: bold;
+            font-weight: 800;
             color: #ffd700;
-            text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
         }
 
         /* 提示文字 */
         #instruction {
-            margin-top: 10px;
-            font-size: 16px;
+            margin-top: 15px;
+            font-size: 14px;
             color: rgba(255, 255, 255, 0.9);
-            background: rgba(0, 0, 0, 0.5);
-            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
             border-radius: 20px;
             text-align: center;
+            border: 1px solid rgba(255,215,0,0.2);
+            max-width: 80%;
+            line-height: 1.5;
         }
 
         /* 最终祝福文字 */
@@ -84,14 +99,15 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 32px;
+            font-size: 36px;
             font-weight: bold;
             color: #ffd700;
-            text-shadow: 0 0 20px rgba(255, 165, 0, 1);
+            text-shadow: 0 0 30px rgba(255, 165, 0, 1);
             opacity: 0;
             transition: opacity 1s ease-in;
             text-align: center;
-            width: 80%;
+            width: 90%;
+            z-index: 30;
         }
 
         /* 加载遮罩 */
@@ -101,37 +117,53 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: #000;
-            z-index: 10;
+            background: #04050b;
+            z-index: 100;
             display: flex;
             justify-content: center;
             align-items: center;
             color: #ffd700;
-            font-size: 20px;
+            font-size: 18px;
             flex-direction: column;
         }
         .spinner {
             width: 40px;
             height: 40px;
-            border: 4px solid #333;
-            border-top: 4px solid #ffd700;
+            border: 3px solid rgba(255,215,0,0.3);
+            border-top: 3px solid #ffd700;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 小窗口提示文字 */
+        .pip-label {
+            position: fixed;
+            top: 120px; /* 根据video高度调整 */
+            right: 16px;
+            width: 120px;
+            text-align: center;
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            z-index: 21;
+        }
     </style>
 </head>
 <body>
 
     <video id="input-video" playsinline></video>
+    <div class="pip-label">手势识别中</div>
 
     <canvas id="three-canvas"></canvas>
 
     <div id="ui-layer">
         <div id="timer">12</div>
-        <div id="instruction">🖐 把手放入镜头：左右移动旋转，远近控制大小</div>
-        <div id="final-message">闺蜜今年圣诞一起暴富！</div>
+        <div id="instruction">
+            👋 伸手即可控制<br>
+            <span style="font-size:12px; opacity:0.8">左右移动旋转 · 前后移动缩放</span>
+        </div>
+        <div id="final-message">✨ 闺蜜今年圣诞一起暴富！✨</div>
     </div>
 
     <div id="loading">
@@ -154,11 +186,12 @@
         function initThreeScene(canvas) {
             const renderer = new THREE.WebGLRenderer({
                 canvas,
-                alpha: true,
+                alpha: true, // 核心修改：背景透明
                 antialias: true
             });
             renderer.setPixelRatio(window.devicePixelRatio || 1);
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0); // 核心修改：清除颜色设为完全透明
 
             const scene = new THREE.Scene();
 
@@ -170,22 +203,23 @@
             );
             camera.position.set(0, 1.6, 8);
 
-            const ambient = new THREE.AmbientLight(0xfff4ce, 0.6);
+            // 增强光照以配合夜空背景
+            const ambient = new THREE.AmbientLight(0xfff4ce, 0.4);
             scene.add(ambient);
 
-            const keyLight = new THREE.DirectionalLight(0xffe08a, 1.2);
+            const keyLight = new THREE.DirectionalLight(0xffe08a, 1.5);
             keyLight.position.set(3, 6, 4);
             scene.add(keyLight);
 
-            const rimLight = new THREE.PointLight(0xfff6b0, 1.0, 20);
+            const rimLight = new THREE.PointLight(0xfff6b0, 1.2, 20);
             rimLight.position.set(-2, 4, -3);
             scene.add(rimLight);
 
-            // 金色材质
+            // 金色材质 (增强发光)
             const goldMat = new THREE.MeshStandardMaterial({
                 color: 0xffd700,
                 emissive: 0xffd700,
-                emissiveIntensity: 0.7,
+                emissiveIntensity: 0.8, // 稍微增强发光
                 metalness: 0.95,
                 roughness: 0.2
             });
@@ -219,7 +253,7 @@
             const starMat = new THREE.MeshStandardMaterial({
                 color: 0xfff6b0,
                 emissive: 0xfff6b0,
-                emissiveIntensity: 1.2,
+                emissiveIntensity: 1.5,
                 metalness: 0.9,
                 roughness: 0.1
             });
@@ -232,7 +266,7 @@
             const orbMat = new THREE.MeshStandardMaterial({
                 color: 0xfff2c0,
                 emissive: 0xfff2c0,
-                emissiveIntensity: 0.9,
+                emissiveIntensity: 1.0,
                 metalness: 0.9,
                 roughness: 0.3
             });
@@ -272,6 +306,7 @@
             }
             treeGroup.add(glowGroup);
 
+            // 调整树的初始位置
             treeGroup.position.set(0, 0.5, 0);
             scene.add(treeGroup);
 
@@ -323,19 +358,19 @@
                 });
 
                 // 初始化粒子数据
-                const count = 1000;
+                const count = 1200;
                 const positions = new Float32Array(count * 3);
                 
                 for(let i=0; i<count; i++) {
                     positions[i*3] = position.x;
-                    positions[i*3+1] = position.y + 2; // 从树中心偏上一点爆发
+                    positions[i*3+1] = position.y + 1.5; // 从树中心爆发
                     positions[i*3+2] = position.z;
                     
                     this.particles.push({
-                        vx: (Math.random() - 0.5) * 0.4,
-                        vy: (Math.random() - 0.5) * 0.4,
-                        vz: (Math.random() - 0.5) * 0.4,
-                        life: 1.0 + Math.random() * 0.5
+                        vx: (Math.random() - 0.5) * 0.5,
+                        vy: (Math.random() - 0.5) * 0.5,
+                        vz: (Math.random() - 0.5) * 0.5,
+                        life: 1.0 + Math.random() * 0.8
                     });
                 }
 
@@ -359,7 +394,7 @@
                 for(let i=0; i<this.particles.length; i++) {
                     const p = this.particles[i];
                     if (p.life > 0) {
-                        p.life -= 0.01;
+                        p.life -= 0.015;
                         positions[i*3] += p.vx;
                         positions[i*3+1] += p.vy;
                         positions[i*3+2] += p.vz;
@@ -371,7 +406,7 @@
                 
                 // 整体淡出
                 if(this.system.material.opacity > 0) {
-                    this.system.material.opacity -= 0.005;
+                    this.system.material.opacity -= 0.008;
                 }
 
                 if(this.system.material.opacity <= 0) {
@@ -408,6 +443,7 @@
             hands.onResults(onResults);
 
             // 3. 启动摄像头并绑定到 MediaPipe
+            // 使用 CameraUtils 管理视频流
             const cameraUtils = new Camera(videoElement, {
                 onFrame: async () => {
                     await hands.send({image: videoElement});
@@ -418,11 +454,13 @@
             
             try {
                 await cameraUtils.start();
-                loadingElement.style.display = 'none'; // 摄像头启动成功后隐藏loading
-                startCountdown(); // 开始倒计时
+                // 确保视频元素不静音也能播放（虽然设了muted），
+                // 但为了保险，还是保留muted属性
+                loadingElement.style.display = 'none'; 
+                startCountdown(); 
             } catch (err) {
                 console.error(err);
-                loadingElement.innerHTML = "<div>无法开启摄像头</div><div style='font-size:14px; margin-top:10px'>请确保使用HTTPS或本地环境</div>";
+                loadingElement.innerHTML = "<div>无法开启摄像头</div><div style='font-size:14px; margin-top:10px; opacity:0.7'>请确保使用HTTPS或本地环境</div>";
             }
 
             // 4. MediaPipe 结果处理逻辑
@@ -435,15 +473,15 @@
 
                     // --- 计算旋转 (Rotation) ---
                     // 使用中指根部(9)作为手掌中心点的参考
-                    // landmarks 坐标范围是 [0, 1]，0在左，1在右
+                    // video被翻转了，所以逻辑需要匹配镜像后的画面
+                    // landmarks.x: 0 (左) -> 1 (右)
                     const palmX = landmarks[9].x; 
                     
                     // 映射 logic: 
                     // 画面左侧 (x < 0.5) -> 向左转 (-60度)
                     // 画面右侧 (x > 0.5) -> 向右转 (+60度)
-                    // 角度转换为弧度: 60度 = PI/3
-                    // 注意：由于CSS transform: scaleX(-1) 镜像了画布，视觉上是符合直觉的
                     const maxRotation = Math.PI / 3; 
+                    // 注意方向：手往右移，希望树往右转
                     state.targetRotationY = (palmX - 0.5) * 2 * maxRotation;
 
                     // --- 计算缩放 (Scale) ---
@@ -454,12 +492,14 @@
                     
                     // distance 一般在 0.1 (远) 到 0.4 (近) 之间
                     // 映射到 scale [0.7, 1.4]
-                    // 简单线性映射： scale = base + factor * distance
-                    const scaleFactor = Math.min(Math.max(distance * 4, 0.7), 1.4);
+                    const scaleFactor = Math.min(Math.max(distance * 4, 0.7), 1.5);
                     state.targetScale = scaleFactor;
 
                 } else {
                     state.handDetected = false;
+                    // 无手时缓慢回正
+                    state.targetRotationY = 0;
+                    state.targetScale = 1;
                 }
             }
 
@@ -516,9 +556,9 @@
                     glowGroup.rotation.y -= 0.5 * delta;
                     glowGroup.rotation.x = Math.sin(clock.getElapsedTime()) * 0.1;
 
-                    // 如果没检测到手，可以让树有一个轻微的呼吸/摆动效果
+                    // 待机动画：如果没有检测到手，树缓慢自转
                     if (!state.handDetected) {
-                        treeGroup.rotation.y = Math.sin(clock.getElapsedTime() * 0.5) * 0.2;
+                        treeGroup.rotation.y = Math.sin(clock.getElapsedTime() * 0.5) * 0.15;
                     }
                 } else {
                     // 更新爆炸粒子
