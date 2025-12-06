@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Golden AR Tree - Pro Gestures</title>
+
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        #input-video {
+            position: fixed; top: 16px; right: 16px;
+            width: 120px; height: auto; aspect-ratio: 3/4;
+            object-fit: cover; border-radius: 12px;
+            border: 2px solid rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
+            transform: scaleX(-1); z-index: 20; background: #222;
+        }
+
+        #three-canvas { display: block; width: 100%; height: 100%; z-index: 10; }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 15; pointer-events: none;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /* 状态提示胶囊 */
+        #status-pill {
+            margin-top: 40px;
+            padding: 8px 20px;
+            border-radius: 30px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            color: #FFD700;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s;
+        }
+
+        /* 充能条 */
+        #charge-bar-container {
+            margin-top: 10px;
+            width: 150px; height: 6px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #charge-bar {
+            width: 0%; height: 100%;
+            background: #FFD700;
+            transition: width 0.1s linear;
+        }
+
+        /* 手势说明图例 */
+        #guide-panel {
+            position: absolute; bottom: 30px;
+            display: flex; gap: 20px;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px; border-radius: 12px;
+        }
+        .guide-item { text-align: center; color: rgba(255,255,255,0.7); font-size: 12px; }
+        .guide-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+
+        #final-message {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 32px; font-weight: bold; color: #FFD700;
+            text-shadow: 0 0 30px rgba(255, 140, 0, 1);
+            opacity: 0; transition: opacity 1s; text-align: center; width: 90%;
+        }
+
+        #loading {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 100;
+            display: flex; justify-content: center; align-items: center;
+            color: #ffd700; flex-direction: column;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #ffd700;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <video id="input-video" playsinline></video>
+    <canvas id="three-canvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="status-pill">
+            <span id="gesture-icon">✋</span>
+            <span id="gesture-text">寻找手势中...</span>
+        </div>
+
+        <div id="charge-bar-container">
+            <div id="charge-bar"></div>
+        </div>
+
+        <div id="guide-panel">
+            <div class="guide-item"><span class="guide-icon">✊</span>抓取拉近</div>
+            <div class="guide-item"><span class="guide-icon">🖐</span>张开推远</div>
+            <div class="guide-item"><span class="guide-icon">✌️</span>蓄力爆炸</div>
+        </div>
+
+        <div id="final-message">✨ 闺蜜今年圣诞一起暴富！✨</div>
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>启动手势引擎...</div>
+    </div>
+
+    <script>
+        // === 状态管理 ===
+        const state = {
+            // 目标变换值
+            targetRotationY: 0,
+            targetScale: 1,
+
+            // 当前平滑值
+            currentRotationY: 0,
+            currentScale: 1,
+
+            // 爆炸逻辑
+            isExploded: false,
+            victoryCharge: 0, // 0~100 充能值
+
+            // 手势状态
+            currentGesture: 'NONE' // NONE, FIST, OPEN, VICTORY
+        };
+
+        const canvas = document.getElementById('three-canvas');
+        const statusText = document.getElementById('gesture-text');
+        const statusIcon = document.getElementById('gesture-icon');
+        const chargeBar = document.getElementById('charge-bar');
+        const chargeContainer = document.getElementById('charge-bar-container');
+        const msgElement = document.getElementById('final-message');
+
+        // Three.js 变量
+        let scene, camera, renderer;
+        let treeGroup, particles, ornaments, starMesh;
+        let particleGeo, particleMat;
+        let clock = new THREE.Clock();
+
+        // 纹理
+        function createTexture() {
+            const c = document.createElement('canvas'); c.width=64; c.height=64;
+            const ctx = c.getContext('2d');
+            const g = ctx.createRadialGradient(32,32,0,32,32,32);
+            g.addColorStop(0,'rgba(255,255,255,1)');
+            g.addColorStop(0.3,'rgba(255,215,0,0.6)');
+            g.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.fillStyle=g; ctx.fillRect(0,0,64,64);
+            return new THREE.CanvasTexture(c);
+        }
+        const glowTex = createTexture();
+
+        // 文字粒子目标
+        function createTextTargets(text) {
+            const c = document.createElement('canvas');
+            const ctx = c.getContext('2d');
+            c.width = 1024; c.height = 256;
+            ctx.font = `bold 80px Arial`;
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, c.width/2, c.height/2);
+            const data = ctx.getImageData(0,0,c.width,c.height).data;
+            const targets = [];
+            for(let y=0; y<c.height; y+=5) {
+                for(let x=0; x<c.width; x+=5) {
+                    if(data[(y*c.width+x)*4 + 3] > 128) {
+                        targets.push(new THREE.Vector3((x-c.width/2)*0.015, -(y-c.height/2)*0.015+0.5, 0));
+                    }
+                }
+            }
+            return targets;
+        }
+
+        // === Three.js Setup ===
+        function initThree() {
+            renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#020205');
+            scene.fog = new THREE.FogExp2(0x020205, 0.05);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1, 8);
+
+            treeGroup = new THREE.Group();
+            scene.add(treeGroup);
+
+            createTree();
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+            const dl = new THREE.DirectionalLight(0xffd700, 2);
+            dl.position.set(2, 5, 5);
+            scene.add(dl);
+        }
+
+        function createTree() {
+            const count = 3500;
+            particleGeo = new THREE.BufferGeometry();
+            const pos = [], target = [], color = [], size = [];
+
+            // 树形粒子
+            const layers = 6;
+            for(let i=0; i<count; i++) {
+                const layer = Math.floor(Math.random()*layers);
+                const yBase = 1.5 - (layer * 0.6);
+                const rBase = 0.1 + (layer * 0.45);
+                const angle = Math.random() * Math.PI * 2;
+                const r = Math.random() * rBase;
+
+                pos.push((Math.random()-0.5)*10, (Math.random()-0.5)*10, (Math.random()-0.5)*10); // 初始散乱
+                target.push(Math.cos(angle)*r, yBase+(Math.random()-0.5)*0.5, Math.sin(angle)*r);
+
+                const c = new THREE.Color().setHSL(0.1+Math.random()*0.05, 1, 0.6);
+                color.push(c.r, c.g, c.b);
+                size.push(Math.random()*0.12 + 0.03);
+            }
+
+            particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            particleGeo.setAttribute('target', new THREE.Float32BufferAttribute(target, 3));
+            particleGeo.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
+            particleGeo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
+
+            const textTargets = createTextTargets("Merry Christmas");
+            const textAttr = [];
+            for(let i=0; i<count; i++) {
+                const t = textTargets[i % textTargets.length];
+                textAttr.push(t.x, t.y, t.z);
+            }
+            particleGeo.setAttribute('textTarget', new THREE.Float32BufferAttribute(textAttr, 3));
+
+            particleMat = new THREE.PointsMaterial({
+                map: glowTex, size: 0.1, vertexColors: true,
+                blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9
+            });
+            particles = new THREE.Points(particleGeo, particleMat);
+            treeGroup.add(particles);
+
+            // 装饰球
+            const orbGeo = new THREE.SphereGeometry(0.12, 16, 16);
+            const orbMat = new THREE.MeshStandardMaterial({
+                color: 0xffaa00, metalness: 0.9, roughness: 0.1, emissive: 0xffaa00, emissiveIntensity: 0.3
+            });
+            ornaments = new THREE.InstancedMesh(orbGeo, orbMat, 50);
+            const dummy = new THREE.Object3D();
+            ornaments.userData.targets = [];
+            for(let i=0; i<50; i++) {
+                dummy.position.set(0, -10, 0); dummy.updateMatrix(); ornaments.setMatrixAt(i, dummy.matrix);
+                const layer = Math.floor(Math.random()*layers);
+                const r = 0.2 + (layer * 0.45);
+                const angle = Math.random() * Math.PI * 2;
+                ornaments.userData.targets.push({
+                    x: Math.cos(angle)*r, y: 1.5-(layer*0.6)+(Math.random()-0.5)*0.3, z: Math.sin(angle)*r
+                });
+            }
+            treeGroup.add(ornaments);
+
+            // 星星
+            starMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.3,0), new THREE.MeshBasicMaterial({color:0xffffff}));
+            starMesh.position.set(0, -10, 0);
+            const halo = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xffd700, blending:THREE.AdditiveBlending}));
+            halo.scale.set(2,2,2); starMesh.add(halo);
+            treeGroup.add(starMesh);
+        }
+
+        // === 动画循环 ===
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            if (!state.isExploded) {
+                // 平滑插值更新
+                state.currentRotationY += (state.targetRotationY - state.currentRotationY) * 0.1;
+                state.currentScale += (state.targetScale - state.currentScale) * 0.05;
+
+                treeGroup.rotation.y = state.currentRotationY + time * 0.1;
+                treeGroup.scale.setScalar(state.currentScale);
+
+                // 粒子聚合
+                const pos = particleGeo.attributes.position.array;
+                const target = particleGeo.attributes.target.array;
+                for(let i=0; i<pos.length; i++) pos[i] += (target[i] - pos[i]) * 0.05;
+                particleGeo.attributes.position.needsUpdate = true;
+
+                // 装饰跟随
+                const dummy = new THREE.Object3D();
+                const oTargets = ornaments.userData.targets;
+                for(let i=0; i<50; i++) {
+                    const t = oTargets[i];
+                    dummy.position.set(t.x, t.y, t.z);
+                    dummy.scale.setScalar(1 + Math.sin(time*3+i)*0.2);
+                    dummy.updateMatrix();
+                    ornaments.setMatrixAt(i, dummy.matrix);
+                }
+                ornaments.instanceMatrix.needsUpdate = true;
+                starMesh.position.lerp(new THREE.Vector3(0, 2.1, 0), 0.05);
+                starMesh.rotation.y -= 0.02;
+
+                // 充能逻辑
+                if(state.currentGesture === 'VICTORY') {
+                    state.victoryCharge += 1.5; // 增加速度
+                    chargeContainer.style.opacity = 1;
+                    chargeBar.style.width = state.victoryCharge + '%';
+
+                    // 震动特效
+                    treeGroup.position.x = (Math.random()-0.5) * 0.1;
+                    treeGroup.position.y = (Math.random()-0.5) * 0.1;
+
+                    if(state.victoryCharge >= 100) triggerExplosion();
+                } else {
+                    state.victoryCharge = Math.max(0, state.victoryCharge - 2); // 衰减
+                    chargeBar.style.width = state.victoryCharge + '%';
+                    if(state.victoryCharge <= 0) chargeContainer.style.opacity = 0;
+
+                    treeGroup.position.x = 0;
+                    treeGroup.position.y = 0;
+                }
+
+            } else {
+                // 爆炸后飞向文字
+                const pos = particleGeo.attributes.position.array;
+                const textT = particleGeo.attributes.textTarget.array;
+                for(let i=0; i<pos.length; i+=3) {
+                    pos[i] += (textT[i] - pos[i]) * 0.04 + (Math.random()-0.5)*0.005;
+                    pos[i+1] += (textT[i+1] - pos[i+1]) * 0.04 + (Math.random()-0.5)*0.005;
+                    pos[i+2] += (textT[i+2] - pos[i+2]) * 0.04;
+                }
+                particleGeo.attributes.position.needsUpdate = true;
+                treeGroup.rotation.y = Math.sin(time*0.5)*0.1;
+            }
+            renderer.render(scene, camera);
+        }
+
+        function triggerExplosion() {
+            state.isExploded = true;
+            document.getElementById('ui-layer').style.display = 'none'; // 隐藏旧UI
+            msgElement.style.opacity = 1;
+            ornaments.visible = false;
+            starMesh.visible = false;
+
+            // 炸开瞬间
+            const pos = particleGeo.attributes.position.array;
+            for(let i=0; i<pos.length; i++) pos[i] += (Math.random()-0.5) * 5;
+            particleGeo.attributes.position.needsUpdate = true;
+        }
+
+        // === 关键：手势识别算法 ===
+        function detectGesture(landmarks) {
+            // 1. 判断手指伸直/弯曲
+            // 简单的判定：指尖到掌心(0号点)距离 vs 指根到掌心距离
+            // 如果 指尖距离 < 指根距离 * 1.2，认为是弯曲
+
+            const isFingerExtended = (tipIdx, pipIdx) => {
+                const dTip = Math.hypot(landmarks[tipIdx].x - landmarks[0].x, landmarks[tipIdx].y - landmarks[0].y);
+                const dPip = Math.hypot(landmarks[pipIdx].x - landmarks[0].x, landmarks[pipIdx].y - landmarks[0].y);
+                return dTip > dPip * 1.3; // 1.3倍阈值，防误判
+            };
+
+            const thumbOpen = isFingerExtended(4, 2); // 拇指特殊，对比关节2
+            const indexOpen = isFingerExtended(8, 5);
+            const middleOpen = isFingerExtended(12, 9);
+            const ringOpen = isFingerExtended(16, 13);
+            const pinkyOpen = isFingerExtended(20, 17);
+
+            const openCount = [thumbOpen, indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
+
+            // 2. 状态机判定
+            if (openCount <= 1) return 'FIST'; // 握拳
+            if (openCount >= 4) return 'OPEN'; // 张开
+            if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) return 'VICTORY'; // 剪刀手
+
+            return 'NEUTRAL';
+        }
+
+        window.onload = async function() {
+            const video = document.getElementById('input-video');
+            const loading = document.getElementById('loading');
+
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5});
+
+            hands.onResults(results => {
+                loading.style.display = 'none';
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    const gesture = detectGesture(lm);
+                    state.currentGesture = gesture;
+
+                    // UI 更新
+                    if(gesture === 'FIST') {
+                        statusIcon.innerText = "✊"; statusText.innerText = "抓取：拉近树";
+                        state.targetScale = 1.8; // 变大
+                    } else if(gesture === 'OPEN') {
+                        statusIcon.innerText = "🖐"; statusText.innerText = "放手：推远树";
+                        state.targetScale = 0.8; // 变小
+                    } else if(gesture === 'VICTORY') {
+                        statusIcon.innerText = "✌️"; statusText.innerText = "蓄力中...";
+                        // 保持当前大小
+                    } else {
+                        statusIcon.innerText = "✋"; statusText.innerText = "控制中";
+                        state.targetScale = 1.0; // 复原
+                    }
+
+                    // 旋转控制 (始终有效)
+                    const palmX = lm[9].x; 
+                    // MediaPipe 镜像：x 0(左) -> 1(右)
+                    // 映射到 -1.5 ~ 1.5 弧度
+                    state.targetRotationY = (palmX - 0.5) * 3;
+
+                } else {
+                    statusIcon.innerText = "👀"; statusText.innerText = "寻找手势...";
+                    state.currentGesture = 'NONE';
+                    state.targetRotationY = 0;
+                    state.targetScale = 1;
+                }
+            });
+
+            const camera = new Camera(video, {
+                onFrame: async () => { await hands.send({image: video}); },
+                width: 640, height: 480
+            });
+            camera.start().catch(e => loading.innerHTML = "摄像头启动失败");
+
+            initThree();
+            animate();
+        };
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
+
+    
