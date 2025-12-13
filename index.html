@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Golden Knot - Self Check</title>
+    <title>AR Debugger</title>
     
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: monospace; }
         
         #input-video {
             position: fixed; top: 16px; right: 16px; width: 100px; height: auto;
@@ -20,343 +21,222 @@
 
         #three-canvas { display: block; width: 100%; height: 100%; z-index: 10; }
 
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 15; pointer-events: none;
-            display: flex; flex-direction: column; align-items: center;
+        /* 调试日志窗口 */
+        #debug-console {
+            position: absolute; top: 0; left: 0; width: 100%; height: 50%;
+            pointer-events: none; z-index: 100;
+            padding: 10px; box-sizing: border-box;
+            color: #0f0; text-shadow: 1px 1px 0 #000;
+            overflow-y: auto; font-size: 12px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
         }
-
-        #status-pill {
-            margin-top: 40px; padding: 8px 20px; border-radius: 30px;
-            background: rgba(20, 20, 20, 0.8); border: 1px solid rgba(255, 215, 0, 0.4);
-            color: #FFD700; font-weight: bold; font-size: 14px;
-            display: flex; gap: 10px; align-items: center;
-        }
-
-        #charge-bar-container {
-            margin-top: 10px; width: 150px; height: 6px;
-            background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;
-            opacity: 0; transition: opacity 0.3s;
-        }
-        #charge-bar { width: 0%; height: 100%; background: #FFD700; transition: width 0.1s linear; }
-
-        #guide-panel {
-            position: absolute; bottom: 40px; display: flex; gap: 20px;
-            background: rgba(0,0,0,0.7); padding: 12px 24px; border-radius: 16px;
-        }
-        .guide-item { text-align: center; color: rgba(255,255,255,0.8); font-size: 12px; }
-        .guide-icon { font-size: 24px; display: block; margin-bottom: 4px; }
+        .log-error { color: #ff3333; font-weight: bold; }
+        .log-warn { color: #ffff33; }
+        .log-info { color: #ffffff; }
 
         #loading {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 100;
-            display: flex; justify-content: center; align-items: center;
-            color: #ffd700; flex-direction: column; gap: 15px;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: gold; font-size: 20px; font-weight: bold; z-index: 50;
+            text-align: center; pointer-events: none;
+            text-shadow: 0 0 10px #000;
         }
     </style>
 </head>
 <body>
 
-    <video id="input-video" playsinline></video>
+    <div id="debug-console"></div>
+    <div id="loading">正在初始化图形引擎...</div>
+    <video id="input-video" playsinline muted></video>
     <canvas id="three-canvas"></canvas>
 
-    <div id="ui-layer">
-        <div id="status-pill">
-            <span id="gesture-icon">✋</span>
-            <span id="gesture-text">寻找手势...</span>
-        </div>
-        <div id="charge-bar-container"><div id="charge-bar"></div></div>
-        
-        <div id="guide-panel">
-            <div class="guide-item"><span class="guide-icon">✊</span>抓取拉近</div>
-            <div class="guide-item"><span class="guide-icon">🖐</span>张开推远</div>
-            <div class="guide-item"><span class="guide-icon">✌️</span>蓄力变身</div>
-        </div>
-    </div>
-
-    <div id="loading">
-        <div class="spinner" style="width:40px;height:40px;border:3px solid #333;border-top:3px solid gold;border-radius:50%;animation:spin 1s linear infinite;"></div>
-        <div style="margin-top:10px">正在生成黄金粒子...</div>
-        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-    </div>
-
-    <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
-
-        // === 核心配置 ===
-        const CONFIG = {
-            wishText: "Fortune 2025",
-            particleCount: 4000,
-            spreadRatio: 1.5,
-            shakeThreshold: 3.5,
+    <script>
+        // === 屏幕日志工具 (为了让你看到报错) ===
+        const consoleDiv = document.getElementById('debug-console');
+        function log(msg, type='info') {
+            const div = document.createElement('div');
+            div.textContent = `> ${msg}`;
+            div.className = `log-${type}`;
+            consoleDiv.appendChild(div);
+            console.log(msg); // 同时也打到后台
+        }
+        window.onerror = function(msg, source, lineno) {
+            log(`ERROR: ${msg} (Line ${lineno})`, 'error');
         };
 
-        const state = {
-            targetRotationY: 0, targetScale: 1,
-            currentRotationY: 0, currentScale: 1,
-            isExploded: false, victoryCharge: 0,
-            handDetected: false,
-            lastHandTime: 0, lastHandCenter: {x:0, y:0},
-            currentGesture: 'NONE'
-        };
-
+        // === 核心变量 ===
         let scene, camera, renderer, clock;
-        let mainGroup, particles, particleGeo, particleMat;
+        let mainGroup, particleGeo, particleMat;
+        let isAutoMode = true; // 默认自动播放，直到手势识别成功
 
+        // === 1. 立即启动 Three.js (不等待摄像头) ===
         function initThree() {
-            const canvas = document.getElementById('three-canvas');
-            renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            log("启动 Three.js...");
+            try {
+                const canvas = document.getElementById('three-canvas');
+                renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color('#050505');
-            scene.fog = new THREE.FogExp2(0x050505, 0.05);
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color('#050505');
 
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 1, 8);
+                camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+                camera.position.set(0, 1, 8);
 
-            mainGroup = new THREE.Group();
-            scene.add(mainGroup);
+                mainGroup = new THREE.Group();
+                scene.add(mainGroup);
 
-            // 灯光
-            const ambient = new THREE.AmbientLight(0xffffff, 0.4);
-            scene.add(ambient);
-            const dirLight = new THREE.DirectionalLight(0xffd700, 1.5);
-            dirLight.position.set(2, 5, 5);
-            scene.add(dirLight);
+                // 生成几何体
+                generateKnot();
 
-            // ⚠️ 关键改变：不再加载 GLB，直接生成内置几何体
-            generateProceduralModel();
-            
-            clock = new THREE.Clock();
-            animate();
-        }
+                // 灯光
+                const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+                scene.add(ambient);
+                const dirLight = new THREE.DirectionalLight(0xffd700, 1.5);
+                dirLight.position.set(2, 5, 5);
+                scene.add(dirLight);
 
-        // === 核心：生成程序化几何体代替模型 ===
-        function generateProceduralModel() {
-            // 生成一个复杂的环形结 (TorusKnot) 代替招财猫
-            const geometry = new THREE.TorusKnotGeometry(1.2, 0.4, 150, 20);
-            const mesh = new THREE.Mesh(geometry);
-            mesh.updateMatrixWorld();
-
-            const data = sampleParticlesFromMesh(mesh, CONFIG.particleCount);
-            createParticleSystem(data.positions, data.targetPositions, data.colors, data.sizes);
-            
-            document.getElementById('loading').style.display = 'none';
-        }
-
-        // === 采样算法 ===
-        function sampleParticlesFromMesh(mesh, count) {
-            const samplerGeometry = mesh.geometry.toNonIndexed();
-            const posAttr = samplerGeometry.getAttribute('position');
-            const positions = [], targetPositions = [], colors = [], sizes = [];
-            const totalTris = posAttr.count / 3;
-            
-            for (let i = 0; i < count; i++) {
-                const triIdx = Math.floor(Math.random() * totalTris);
-                const i3 = triIdx * 3;
-
-                const a = new THREE.Vector3(posAttr.getX(i3), posAttr.getY(i3), posAttr.getZ(i3));
-                const b = new THREE.Vector3(posAttr.getX(i3+1), posAttr.getY(i3+1), posAttr.getZ(i3+1));
-                const c = new THREE.Vector3(posAttr.getX(i3+2), posAttr.getY(i3+2), posAttr.getZ(i3+2));
-
-                let r1 = Math.random(), r2 = Math.random();
-                if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
-                const p = new THREE.Vector3().addScaledVector(a, r1).addScaledVector(b, r2).addScaledVector(c, 1 - r1 - r2);
+                clock = new THREE.Clock();
+                log("Three.js 启动成功，开始渲染画面...");
+                document.getElementById('loading').innerText = "图形引擎就绪\n等待摄像头...";
                 
-                // 旋转一下让它立起来
-                p.applyAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
-
-                targetPositions.push(p.x, p.y, p.z);
-                positions.push((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
-
-                const rand = Math.random();
-                if (rand > 0.8) { colors.push(1.0, 0.2, 0.2); sizes.push(0.09); } 
-                else if (rand > 0.5) { colors.push(1.0, 0.84, 0.0); sizes.push(0.07); } 
-                else { colors.push(1.0, 1.0, 0.9); sizes.push(0.05); } 
+                animate(); // 立即开始动画循环
+            } catch (e) {
+                log(`Three.js 初始化失败: ${e.message}`, 'error');
             }
-            return { positions, targetPositions, colors, sizes };
         }
 
-        function createParticleSystem(pos, target, col, size) {
+        // === 2. 生成程序化几何体 (绳结) ===
+        function generateKnot() {
+            const geometry = new THREE.TorusKnotGeometry(1.2, 0.4, 120, 20);
+            const posAttr = geometry.getAttribute('position');
+            const count = posAttr.count; // 顶点数
+            
+            const positions = [];
+            const colors = [];
+            
+            for(let i=0; i<count; i++) {
+                positions.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+                colors.push(1.0, 0.8, 0.0); // 金色
+            }
+
             particleGeo = new THREE.BufferGeometry();
-            particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            particleGeo.setAttribute('target', new THREE.Float32BufferAttribute(target, 3));
-            particleGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-            particleGeo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
+            particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            particleGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-            const textTargets = createTextTargets(CONFIG.wishText);
-            const textAttr = [];
-            for(let i=0; i<pos.length/3; i++) {
-                const t = textTargets[i % textTargets.length];
-                textAttr.push(t.x, t.y, t.z);
-            }
-            particleGeo.setAttribute('textTarget', new THREE.Float32BufferAttribute(textAttr, 3));
-
-            const tex = createGlowTexture();
-            particleMat = new THREE.PointsMaterial({
-                map: tex, size: 0.1, vertexColors: true,
-                blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9
-            });
-
-            particles = new THREE.Points(particleGeo, particleMat);
-            mainGroup.add(particles);
-        }
-
-        // === 辅助 ===
-        function createGlowTexture() {
+            // 创建纹理
             const c = document.createElement('canvas'); c.width=32; c.height=32;
             const ctx = c.getContext('2d');
             const g = ctx.createRadialGradient(16,16,0,16,16,16);
             g.addColorStop(0,'rgba(255,255,255,1)');
-            g.addColorStop(0.4,'rgba(255,255,255,0.2)');
             g.addColorStop(1,'rgba(0,0,0,0)');
             ctx.fillStyle=g; ctx.fillRect(0,0,32,32);
-            return new THREE.CanvasTexture(c);
+            const tex = new THREE.CanvasTexture(c);
+
+            particleMat = new THREE.PointsMaterial({
+                map: tex, size: 0.1, vertexColors: true,
+                blending: THREE.AdditiveBlending, depthWrite: false, transparent: true
+            });
+
+            const particles = new THREE.Points(particleGeo, particleMat);
+            mainGroup.add(particles);
         }
 
-        function createTextTargets(text) {
-            const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-            c.width = 1024; c.height = 256;
-            ctx.font = `bold 100px Arial`; ctx.fillStyle = 'white';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(text, c.width/2, c.height/2);
-            const data = ctx.getImageData(0,0,c.width,c.height).data;
-            const targets = [];
-            for(let y=0; y<c.height; y+=6) {
-                for(let x=0; x<c.width; x+=6) {
-                    if(data[(y*c.width+x)*4 + 3] > 128) {
-                        targets.push({ x: (x-c.width/2)*0.015, y: -(y-c.height/2)*0.015 + 0.5, z: 0 });
-                    }
-                }
-            }
-            return targets;
-        }
-
+        // === 3. 动画循环 ===
         function animate() {
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
 
-            if (!state.isExploded) {
-                state.currentRotationY += (state.targetRotationY - state.currentRotationY) * 0.1;
-                state.currentScale += (state.targetScale - state.currentScale) * 0.08;
-                mainGroup.rotation.y = state.currentRotationY + time * 0.1;
-                mainGroup.scale.setScalar(state.currentScale);
-
-                const pos = particleGeo.attributes.position.array;
-                const target = particleGeo.attributes.target.array;
-                for(let i=0; i<pos.length; i++) pos[i] += (target[i] - pos[i]) * 0.08;
-                particleGeo.attributes.position.needsUpdate = true;
-
-                handleCharge();
-            } else {
-                const pos = particleGeo.attributes.position.array;
-                const textT = particleGeo.attributes.textTarget.array;
-                for(let i=0; i<pos.length; i+=3) {
-                    pos[i] += (textT[i] - pos[i]) * 0.05 + (Math.random()-0.5)*0.005;
-                    pos[i+1] += (textT[i+1] - pos[i+1]) * 0.05 + (Math.random()-0.5)*0.005;
-                    pos[i+2] += (textT[i+2] - pos[i+2]) * 0.05;
-                }
-                particleGeo.attributes.position.needsUpdate = true;
-                mainGroup.rotation.y = Math.sin(time*0.5)*0.1;
+            if (isAutoMode) {
+                // 如果手势没准备好，就自动旋转
+                mainGroup.rotation.y = time * 0.5;
+                mainGroup.rotation.x = Math.sin(time * 0.3) * 0.2;
+                const s = 1 + Math.sin(time * 2) * 0.1;
+                mainGroup.scale.set(s, s, s);
             }
+
             renderer.render(scene, camera);
         }
 
-        function handleCharge() {
-            const bar = document.getElementById('charge-bar');
-            const container = document.getElementById('charge-bar-container');
-            const status = document.getElementById('gesture-text');
-
-            if (state.currentGesture === 'VICTORY') {
-                state.victoryCharge += 1.0; 
-                container.style.opacity = 1;
-                mainGroup.position.x = (Math.random()-0.5) * 0.05;
-                mainGroup.position.y = (Math.random()-0.5) * 0.05;
-                
-                if (state.victoryCharge >= 100) {
-                    state.isExploded = true;
-                    document.getElementById('ui-layer').style.display = 'none';
-                    const pos = particleGeo.attributes.position.array;
-                    for(let i=0; i<pos.length; i++) pos[i] += (Math.random()-0.5) * 5;
-                }
-            } else {
-                state.victoryCharge = Math.max(0, state.victoryCharge - 2.5);
-                if(state.victoryCharge <= 0) container.style.opacity = 0;
-                mainGroup.position.set(0,0,0);
-            }
-            bar.style.width = state.victoryCharge + "%";
-        }
-
-        // === 手势识别 (防误触版) ===
-        function detectGesture(lm) {
-            const palmSize = Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
-            const isExtended = (tip, pip) => {
-                const dist = Math.hypot(lm[tip].x - lm[0].x, lm[tip].y - lm[0].y);
-                return dist > palmSize * CONFIG.spreadRatio;
-            };
-
-            const indexOpen = isExtended(8, 5);
-            const middleOpen = isExtended(12, 9);
-            const ringOpen = isExtended(16, 13);
-            const pinkyOpen = isExtended(20, 17);
-            const thumbOpen = Math.hypot(lm[4].x - lm[17].x, lm[4].y - lm[17].y) > palmSize * 1.2;
-
-            const openCount = [thumbOpen, indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
-
-            if (openCount <= 1) return 'FIST';
-            if (openCount >= 4) return 'OPEN';
-            if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) return 'VICTORY';
-            return 'NEUTRAL';
-        }
-
-        window.onload = function() {
-            const video = document.getElementById('input-video');
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6});
+        // === 4. 尝试启动 AI (带超时) ===
+        async function startAI() {
+            log("尝试加载 MediaPipe...");
             
-            hands.onResults(results => {
-                if (results.multiHandLandmarks.length > 0) {
-                    const lm = results.multiHandLandmarks[0];
-                    state.handDetected = true;
-                    state.currentGesture = detectGesture(lm);
-                    
-                    const icon = document.getElementById('gesture-icon');
-                    const text = document.getElementById('gesture-text');
-                    
-                    if (state.currentGesture === 'FIST') {
-                        state.targetScale = 1.5; icon.innerText = "✊"; text.innerText = "抓取拉近";
-                    } else if (state.currentGesture === 'OPEN') {
-                        state.targetScale = 0.8; icon.innerText = "🖐"; text.innerText = "张开推远";
-                    } else if (state.currentGesture === 'VICTORY') {
-                        icon.innerText = "✌️"; text.innerText = "蓄力变身...";
-                    } else {
-                        state.targetScale = 1.0; icon.innerText = "✋"; text.innerText = "控制中";
-                    }
-                    const palmX = lm[9].x; 
-                    state.targetRotationY = (palmX - 0.5) * 3;
-                } else {
-                    state.handDetected = false;
-                    state.targetRotationY = 0; state.targetScale = 1;
-                    document.getElementById('gesture-icon').innerText = "👀";
-                    document.getElementById('gesture-text').innerText = "寻找手势...";
-                }
-            });
+            // 5秒超时保护
+            const timeout = setTimeout(() => {
+                log("MediaPipe 加载超时 (可能是网络问题)", 'warn');
+                log("已切换到自动演示模式", 'info');
+                document.getElementById('loading').style.display = 'none';
+            }, 8000);
 
-            const camera = new Camera(video, {
-                onFrame: async () => { await hands.send({image: video}); },
-                width: 640, height: 480
-            });
-            camera.start();
-            initThree();
+            try {
+                const video = document.getElementById('input-video');
+                
+                // 检查 Hands 是否存在
+                if (typeof Hands === 'undefined') {
+                    throw new Error("Hands 库未加载，请检查网络 (CDN)");
+                }
+
+                const hands = new Hands({locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }});
+                
+                hands.setOptions({maxNumHands: 1, modelComplexity: 0}); // 用最轻量的模型
+                
+                hands.onResults(results => {
+                    clearTimeout(timeout); // 成功连接，清除超时
+                    document.getElementById('loading').style.display = 'none';
+                    
+                    if (results.multiHandLandmarks.length > 0) {
+                        isAutoMode = false; // 接管控制
+                        const lm = results.multiHandLandmarks[0];
+                        const x = lm[9].x;
+                        const y = lm[9].y;
+                        
+                        // 简单的控制逻辑
+                        mainGroup.rotation.y = (x - 0.5) * 4;
+                        mainGroup.rotation.x = (y - 0.5) * 4;
+                        
+                        // 距离计算
+                        const dist = Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
+                        const s = Math.min(Math.max(dist * 4, 0.5), 2.0);
+                        mainGroup.scale.set(s, s, s);
+                    } else {
+                        // 没手的时候短暂回自动，或者保持不动
+                    }
+                });
+
+                log("请求摄像头权限...");
+                const cameraUtils = new Camera(video, {
+                    onFrame: async () => { await hands.send({image: video}); },
+                    width: 640, height: 480
+                });
+                
+                await cameraUtils.start();
+                log("摄像头启动成功，AI 运行中");
+
+            } catch (e) {
+                clearTimeout(timeout);
+                log(`AI 启动失败: ${e.message}`, 'error');
+                log("将保持在自动演示模式", 'warn');
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // === 入口 ===
+        window.onload = function() {
+            initThree(); // 先画图
+            startAI();   // 再搞 AI
         };
 
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            if(camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
         });
+
     </script>
 </body>
 </html>
