@@ -3,15 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Fortune Cat - Auto Fix</title>
+    <title>AR 招财猫 2025</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: "Microsoft YaHei", sans-serif; }
         
+        /* 摄像头小窗 */
         #input-video {
             position: fixed; top: 16px; right: 16px; width: 100px; height: auto;
             border-radius: 10px; border: 2px solid rgba(255, 215, 0, 0.5);
@@ -26,6 +27,7 @@
             display: flex; flex-direction: column; align-items: center;
         }
 
+        /* 状态提示 */
         #status-pill {
             margin-top: 40px; padding: 8px 20px; border-radius: 30px;
             background: rgba(20, 20, 20, 0.8); border: 1px solid rgba(255, 215, 0, 0.4);
@@ -33,6 +35,7 @@
             display: flex; gap: 10px; align-items: center;
         }
 
+        /* 能量条 */
         #charge-bar-container {
             margin-top: 10px; width: 150px; height: 6px;
             background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;
@@ -40,17 +43,30 @@
         }
         #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #ff8800, #ffd700); transition: width 0.1s linear; }
 
+        /* 指南 */
+        #guide-panel {
+            position: absolute; bottom: 40px; display: flex; gap: 20px;
+            background: rgba(0,0,0,0.7); padding: 12px 24px; border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .guide-item { text-align: center; color: rgba(255,255,255,0.8); font-size: 12px; }
+        .guide-icon { font-size: 24px; display: block; margin-bottom: 4px; }
+
+        /* 加载页 */
         #loading {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: #000; z-index: 100;
             display: flex; justify-content: center; align-items: center;
-            color: #ffd700; flex-direction: column; gap: 10px; text-align: center;
+            color: #ffd700; flex-direction: column; gap: 15px; text-align: center; padding: 20px;
         }
         .spinner {
             width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #ffd700;
             border-radius: 50%; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* 隐藏的图片资源 (用于剧情页) */
+        .hidden-assets { display: none; }
     </style>
 </head>
 <body>
@@ -64,32 +80,42 @@
             <span id="gesture-text">寻找手势...</span>
         </div>
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
+        
+        <div id="guide-panel">
+            <div class="guide-item"><span class="guide-icon">✊</span>抓取拉近</div>
+            <div class="guide-item"><span class="guide-icon">🖐</span>张开推远</div>
+            <div class="guide-item"><span class="guide-icon">✌️</span>蓄力变身</div>
+        </div>
     </div>
 
     <div id="loading">
         <div class="spinner"></div>
-        <div id="loading-text">正在召唤...</div>
-        <div id="loading-sub" style="font-size:12px; color:#666">尝试加载模型中</div>
+        <div id="loading-text" style="margin-top:15px">正在生成黄金粒子...</div>
+    </div>
+
+    <div class="hidden-assets">
+        <img id="img-santa" src="./santa.png" alt="santa">
+        <img id="img-tree" src="./tree.png" alt="tree">
     </div>
 
     <script type="module">
         import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
-        import { GLTFLoader } from 'https://unpkg.com/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
         import { BufferGeometryUtils } from 'https://unpkg.com/three@0.158.0/examples/jsm/utils/BufferGeometryUtils.js';
 
         // === 配置 ===
         const CONFIG = {
-            modelUrl: './cutecat01.glb', // 你的文件名
             wishText: "Fortune 2025",
-            particleCount: 4500,
-            spreadRatio: 1.5
+            particleCount: 4000,
+            spreadRatio: 1.5,
+            shakeThreshold: 3.5,
         };
 
         const state = {
             targetRotationY: 0, targetScale: 1,
             currentRotationY: 0, currentScale: 1,
             isExploded: false, victoryCharge: 0,
-            handDetected: false, modelLoaded: false,
+            handDetected: false,
+            lastHandTime: 0, lastHandCenter: {x:0, y:0},
             currentGesture: 'NONE'
         };
 
@@ -119,121 +145,64 @@
             dirLight.position.set(2, 5, 5);
             scene.add(dirLight);
 
-            attemptLoadModel();
+            createProceduralCat(); // 纯代码生成，不依赖加载文件
             
             clock = new THREE.Clock();
             animate();
         }
 
-        // === 2. 尝试加载模型 (带超时自动切换) ===
-        function attemptLoadModel() {
-            const loader = new GLTFLoader();
-            const loadingText = document.getElementById('loading-text');
-            const loadingSub = document.getElementById('loading-sub');
-            
-            let loadTimedOut = false;
-
-            // 3秒后如果没有加载完，强制切换到程序生成模式
-            const timeoutId = setTimeout(() => {
-                if (!state.modelLoaded) {
-                    loadTimedOut = true;
-                    console.warn("模型加载超时，切换到自动生成模式");
-                    loadingSub.innerText = "网络较慢，正在自动生成金猫...";
-                    createProceduralCat(); // <--- 关键：代码生成猫
-                }
-            }, 3000);
-
-            loader.load(
-                CONFIG.modelUrl, 
-                (gltf) => {
-                    if (loadTimedOut) return; // 如果已经超时切换了，就忽略加载结果
-                    clearTimeout(timeoutId);
-                    
-                    const model = gltf.scene;
-                    model.scale.setScalar(3.5);
-                    model.position.y = -1.5;
-                    model.updateMatrixWorld(true);
-
-                    let combinedPos = [], combinedTarget = [], combinedCol = [], combinedSize = [];
-                    model.traverse((child) => {
-                        if (child.isMesh) {
-                            const data = sampleParticlesFromMesh(child, CONFIG.particleCount);
-                            combinedPos.push(...data.positions);
-                            combinedTarget.push(...data.targetPositions);
-                            combinedCol.push(...data.colors);
-                            combinedSize.push(...data.sizes);
-                        }
-                    });
-
-                    if (combinedPos.length > 0) {
-                        createParticleSystem(combinedPos, combinedTarget, combinedCol, combinedSize);
-                        finishLoading();
-                    } else {
-                        createProceduralCat(); // 空模型兜底
-                    }
-                }, 
-                (xhr) => {
-                    const p = (xhr.loaded / xhr.total * 100).toFixed(0);
-                    if(isFinite(p)) loadingText.innerText = `加载资源... ${p}%`;
-                },
-                (error) => {
-                    clearTimeout(timeoutId);
-                    console.error("加载失败，切换自动生成", error);
-                    createProceduralCat(); // 错误兜底
-                }
-            );
-        }
-
-        // === 3. 核心：代码生成招财猫 (保底方案) ===
+        // === 2. 纯代码生成招财猫 (无需外部模型) ===
         function createProceduralCat() {
-            // 用简单的几何体拼凑一个猫的形状进行采样
             const geometries = [];
 
-            // 身体 (圆柱)
-            const bodyGeo = new THREE.CylinderGeometry(0.8, 1.0, 1.8, 20, 4);
-            bodyGeo.translate(0, -0.5, 0);
-            geometries.push(bodyGeo);
+            // 身体
+            const body = new THREE.CylinderGeometry(0.9, 1.1, 1.8, 24, 8);
+            body.translate(0, -0.9, 0);
+            geometries.push(body);
 
-            // 头 (球)
-            const headGeo = new THREE.SphereGeometry(0.9, 20, 20);
-            headGeo.translate(0, 1.2, 0);
-            geometries.push(headGeo);
+            // 头
+            const head = new THREE.SphereGeometry(1.0, 24, 24);
+            head.translate(0, 0.8, 0);
+            geometries.push(head);
 
-            // 耳朵 (圆锥)
+            // 耳朵
             const earL = new THREE.ConeGeometry(0.3, 0.6, 16);
-            earL.translate(-0.5, 2.0, 0);
-            earL.rotateZ(0.3);
+            earL.translate(-0.6, 1.6, 0); earL.rotateZ(0.4);
             geometries.push(earL);
 
             const earR = new THREE.ConeGeometry(0.3, 0.6, 16);
-            earR.translate(0.5, 2.0, 0);
-            earR.rotateZ(-0.3);
+            earR.translate(0.6, 1.6, 0); earR.rotateZ(-0.4);
             geometries.push(earR);
 
-            // 手 (球)
-            const hand = new THREE.SphereGeometry(0.3, 16, 16);
-            hand.translate(0.9, 0.5, 0.6); // 招财手
-            geometries.push(hand);
+            // 招财手
+            const armR = new THREE.SphereGeometry(0.35, 16, 16);
+            armR.translate(0.9, 0.2, 0.5); 
+            geometries.push(armR);
 
-            // 合并几何体
-            const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
-            
-            // 创建临时的 Mesh 用于采样
-            const dummyMesh = new THREE.Mesh(mergedGeo, new THREE.MeshBasicMaterial());
-            dummyMesh.updateMatrixWorld();
+            // 左手
+            const armL = new THREE.SphereGeometry(0.35, 16, 16);
+            armL.translate(-0.9, -0.5, 0.4);
+            geometries.push(armL);
 
-            const data = sampleParticlesFromMesh(dummyMesh, CONFIG.particleCount);
+            // 合并
+            let mergedGeo;
+            try {
+                mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
+            } catch(e) {
+                mergedGeo = new THREE.SphereGeometry(1.5, 32, 32);
+            }
+
+            const mesh = new THREE.Mesh(mergedGeo, new THREE.MeshBasicMaterial());
+            mesh.scale.setScalar(2.0);
+            mesh.updateMatrixWorld();
+
+            const data = sampleParticlesFromMesh(mesh, CONFIG.particleCount);
             createParticleSystem(data.positions, data.targetPositions, data.colors, data.sizes);
             
-            finishLoading();
-        }
-
-        function finishLoading() {
             document.getElementById('loading').style.display = 'none';
-            state.modelLoaded = true;
         }
 
-        // === 4. 采样与粒子系统 ===
+        // === 3. 采样算法 ===
         function sampleParticlesFromMesh(mesh, count) {
             const samplerGeometry = mesh.geometry.toNonIndexed();
             const posAttr = samplerGeometry.getAttribute('position');
@@ -256,13 +225,14 @@
                 positions.push((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
 
                 const rand = Math.random();
-                if (rand > 0.8) { colors.push(1.0, 0.2, 0.2); sizes.push(0.09); } // 红
-                else if (rand > 0.5) { colors.push(1.0, 0.84, 0.0); sizes.push(0.07); } // 金
-                else { colors.push(1.0, 1.0, 0.9); sizes.push(0.05); } // 白
+                if (rand > 0.8) { colors.push(1.0, 0.2, 0.2); sizes.push(0.09); } 
+                else if (rand > 0.5) { colors.push(1.0, 0.84, 0.0); sizes.push(0.07); } 
+                else { colors.push(1.0, 1.0, 0.9); sizes.push(0.05); } 
             }
             return { positions, targetPositions, colors, sizes };
         }
 
+        // === 4. 粒子系统 ===
         function createParticleSystem(pos, target, col, size) {
             particleGeo = new THREE.BufferGeometry();
             particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -288,42 +258,10 @@
             mainGroup.add(particles);
         }
 
-        // === 5. 辅助 ===
-        function createGlowTexture() {
-            const c = document.createElement('canvas'); c.width=32; c.height=32;
-            const ctx = c.getContext('2d');
-            const g = ctx.createRadialGradient(16,16,0,16,16,16);
-            g.addColorStop(0,'rgba(255,255,255,1)');
-            g.addColorStop(0.4,'rgba(255,255,255,0.2)');
-            g.addColorStop(1,'rgba(0,0,0,0)');
-            ctx.fillStyle=g; ctx.fillRect(0,0,32,32);
-            return new THREE.CanvasTexture(c);
-        }
-
-        function createTextTargets(text) {
-            const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-            c.width = 1024; c.height = 256;
-            ctx.font = `bold 100px Arial`; ctx.fillStyle = 'white';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(text, c.width/2, c.height/2);
-            const data = ctx.getImageData(0,0,c.width,c.height).data;
-            const targets = [];
-            for(let y=0; y<c.height; y+=6) {
-                for(let x=0; x<c.width; x+=6) {
-                    if(data[(y*c.width+x)*4 + 3] > 128) {
-                        targets.push({ x: (x-c.width/2)*0.015, y: -(y-c.height/2)*0.015 + 0.5, z: 0 });
-                    }
-                }
-            }
-            return targets;
-        }
-
-        // === 6. 动画 ===
+        // === 5. 动画 ===
         function animate() {
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
-
-            if (!state.modelLoaded) return;
 
             if (!state.isExploded) {
                 state.currentRotationY += (state.targetRotationY - state.currentRotationY) * 0.1;
@@ -375,7 +313,7 @@
             bar.style.width = state.victoryCharge + "%";
         }
 
-        // === 7. 手势 ===
+        // === 6. 手势 ===
         function detectGesture(lm) {
             const palmSize = Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
             const isExtended = (tip, pip) => Math.hypot(lm[tip].x - lm[0].x, lm[tip].y - lm[0].y) > palmSize * CONFIG.spreadRatio;
@@ -394,6 +332,7 @@
             return 'NEUTRAL';
         }
 
+        // === 7. 启动 ===
         window.onload = function() {
             const video = document.getElementById('input-video');
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
@@ -440,6 +379,36 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // 辅助函数
+        function createGlowTexture() {
+            const c = document.createElement('canvas'); c.width=32; c.height=32;
+            const ctx = c.getContext('2d');
+            const g = ctx.createRadialGradient(16,16,0,16,16,16);
+            g.addColorStop(0,'rgba(255,255,255,1)');
+            g.addColorStop(0.4,'rgba(255,255,255,0.2)');
+            g.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.fillStyle=g; ctx.fillRect(0,0,32,32);
+            return new THREE.CanvasTexture(c);
+        }
+
+        function createTextTargets(text) {
+            const c = document.createElement('canvas'); const ctx = c.getContext('2d');
+            c.width = 1024; c.height = 256;
+            ctx.font = `bold 100px Arial`; ctx.fillStyle = 'white';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, c.width/2, c.height/2);
+            const data = ctx.getImageData(0,0,c.width,c.height).data;
+            const targets = [];
+            for(let y=0; y<c.height; y+=6) {
+                for(let x=0; x<c.width; x+=6) {
+                    if(data[(y*c.width+x)*4 + 3] > 128) {
+                        targets.push({ x: (x-c.width/2)*0.015, y: -(y-c.height/2)*0.015 + 0.5, z: 0 });
+                    }
+                }
+            }
+            return targets;
+        }
     </script>
 </body>
 </html>
