@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR 招财猫 - 2025 暴富版</title>
+    <title>AR Golden Knot - Self Check</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: "Microsoft YaHei", sans-serif; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         
-        /* 右上角摄像头预览 */
         #input-video {
             position: fixed; top: 16px; right: 16px; width: 100px; height: auto;
             border-radius: 10px; border: 2px solid rgba(255, 215, 0, 0.5);
@@ -21,53 +20,39 @@
 
         #three-canvas { display: block; width: 100%; height: 100%; z-index: 10; }
 
-        /* UI 层 */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 15; pointer-events: none;
             display: flex; flex-direction: column; align-items: center;
         }
 
-        /* 状态提示胶囊 */
         #status-pill {
             margin-top: 40px; padding: 8px 20px; border-radius: 30px;
             background: rgba(20, 20, 20, 0.8); border: 1px solid rgba(255, 215, 0, 0.4);
             color: #FFD700; font-weight: bold; font-size: 14px;
             display: flex; gap: 10px; align-items: center;
-            box-shadow: 0 0 15px rgba(255, 215, 0, 0.2);
         }
 
-        /* 能量条 */
         #charge-bar-container {
             margin-top: 10px; width: 150px; height: 6px;
             background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;
             opacity: 0; transition: opacity 0.3s;
         }
-        #charge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #ff8800, #ffd700); transition: width 0.1s linear; }
+        #charge-bar { width: 0%; height: 100%; background: #FFD700; transition: width 0.1s linear; }
 
-        /* 操作指南 */
         #guide-panel {
             position: absolute; bottom: 40px; display: flex; gap: 20px;
             background: rgba(0,0,0,0.7); padding: 12px 24px; border-radius: 16px;
-            border: 1px solid rgba(255,255,255,0.1);
         }
         .guide-item { text-align: center; color: rgba(255,255,255,0.8); font-size: 12px; }
         .guide-icon { font-size: 24px; display: block; margin-bottom: 4px; }
 
-        /* 加载页 */
         #loading {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: #000; z-index: 100;
             display: flex; justify-content: center; align-items: center;
-            color: #ffd700; flex-direction: column; gap: 15px; text-align: center; padding: 20px;
+            color: #ffd700; flex-direction: column; gap: 15px;
         }
-        #error-log { color: #ff4444; font-size: 12px; margin-top: 10px; max-width: 80%; word-break: break-all; opacity: 0.8; }
-        
-        .spinner {
-            width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #ffd700;
-            border-radius: 50%; animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -78,7 +63,7 @@
     <div id="ui-layer">
         <div id="status-pill">
             <span id="gesture-icon">✋</span>
-            <span id="gesture-text">寻找手势中...</span>
+            <span id="gesture-text">寻找手势...</span>
         </div>
         <div id="charge-bar-container"><div id="charge-bar"></div></div>
         
@@ -90,26 +75,20 @@
     </div>
 
     <div id="loading">
-        <div class="spinner"></div>
-        <div id="loading-text" style="margin-top:15px">正在召唤招财猫...</div>
-        <div id="error-log"></div>
+        <div class="spinner" style="width:40px;height:40px;border:3px solid #333;border-top:3px solid gold;border-radius:50%;animation:spin 1s linear infinite;"></div>
+        <div style="margin-top:10px">正在生成黄金粒子...</div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
     </div>
 
     <script type="module">
         import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
-        import { GLTFLoader } from 'https://unpkg.com/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
 
-        // === 核心配置 (已更新文件名) ===
+        // === 核心配置 ===
         const CONFIG = {
-            modelUrl: './cutecat01.glb', // 你的新文件名
             wishText: "Fortune 2025",
-            particleCount: 4500,
-            modelScale: 3.5,       // 模型大小
-            modelYOffset: -1.5,    // 模型垂直位置
-            
-            // 手势阈值 (防误触优化)
-            spreadRatio: 1.5,      // 张开手指判定阈值
-            shakeThreshold: 3.5,   // 震动判定阈值
+            particleCount: 4000,
+            spreadRatio: 1.5,
+            shakeThreshold: 3.5,
         };
 
         const state = {
@@ -117,17 +96,13 @@
             currentRotationY: 0, currentScale: 1,
             isExploded: false, victoryCharge: 0,
             handDetected: false,
-            modelLoaded: false,
-            // 动作检测辅助
-            lastHandTime: 0,
-            lastHandCenter: {x:0, y:0},
+            lastHandTime: 0, lastHandCenter: {x:0, y:0},
             currentGesture: 'NONE'
         };
 
         let scene, camera, renderer, clock;
         let mainGroup, particles, particleGeo, particleMat;
 
-        // === 1. 初始化 Three.js ===
         function initThree() {
             const canvas = document.getElementById('three-canvas');
             renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true });
@@ -151,66 +126,27 @@
             dirLight.position.set(2, 5, 5);
             scene.add(dirLight);
 
-            loadModel();
+            // ⚠️ 关键改变：不再加载 GLB，直接生成内置几何体
+            generateProceduralModel();
             
             clock = new THREE.Clock();
             animate();
         }
 
-        // === 2. 加载模型 & 粒子化 ===
-        function loadModel() {
-            const loader = new GLTFLoader();
-            const loadingText = document.getElementById('loading-text');
-            const errorLog = document.getElementById('error-log');
+        // === 核心：生成程序化几何体代替模型 ===
+        function generateProceduralModel() {
+            // 生成一个复杂的环形结 (TorusKnot) 代替招财猫
+            const geometry = new THREE.TorusKnotGeometry(1.2, 0.4, 150, 20);
+            const mesh = new THREE.Mesh(geometry);
+            mesh.updateMatrixWorld();
 
-            console.log("加载模型:", CONFIG.modelUrl);
-
-            loader.load(
-                CONFIG.modelUrl, 
-                (gltf) => {
-                    console.log("模型加载成功");
-                    const model = gltf.scene;
-                    
-                    model.scale.setScalar(CONFIG.modelScale);
-                    model.position.y = CONFIG.modelYOffset;
-                    model.updateMatrixWorld(true);
-
-                    let combinedPos = [], combinedTarget = [], combinedCol = [], combinedSize = [];
-                    
-                    model.traverse((child) => {
-                        if (child.isMesh) {
-                            const data = sampleParticlesFromMesh(child, CONFIG.particleCount);
-                            combinedPos.push(...data.positions);
-                            combinedTarget.push(...data.targetPositions);
-                            combinedCol.push(...data.colors);
-                            combinedSize.push(...data.sizes);
-                        }
-                    });
-
-                    if (combinedPos.length === 0) throw new Error("模型中没有网格数据");
-
-                    createParticleSystem(combinedPos, combinedTarget, combinedCol, combinedSize);
-                    
-                    document.getElementById('loading').style.display = 'none';
-                    state.modelLoaded = true;
-                }, 
-                (xhr) => {
-                    const p = (xhr.loaded / xhr.total * 100).toFixed(0);
-                    if (isFinite(p)) loadingText.innerText = `加载中... ${p}%`;
-                },
-                (error) => {
-                    console.error(error);
-                    errorLog.innerText = `加载失败: ${error.message || '未知错误'}\n启动备用方案...`;
-                    setTimeout(() => {
-                        createFallbackCube();
-                        document.getElementById('loading').style.display = 'none';
-                        state.modelLoaded = true;
-                    }, 2000);
-                }
-            );
+            const data = sampleParticlesFromMesh(mesh, CONFIG.particleCount);
+            createParticleSystem(data.positions, data.targetPositions, data.colors, data.sizes);
+            
+            document.getElementById('loading').style.display = 'none';
         }
 
-        // === 3. 采样算法 ===
+        // === 采样算法 ===
         function sampleParticlesFromMesh(mesh, count) {
             const samplerGeometry = mesh.geometry.toNonIndexed();
             const posAttr = samplerGeometry.getAttribute('position');
@@ -228,21 +164,21 @@
                 let r1 = Math.random(), r2 = Math.random();
                 if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
                 const p = new THREE.Vector3().addScaledVector(a, r1).addScaledVector(b, r2).addScaledVector(c, 1 - r1 - r2);
-                p.applyMatrix4(mesh.matrixWorld);
+                
+                // 旋转一下让它立起来
+                p.applyAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
 
                 targetPositions.push(p.x, p.y, p.z);
                 positions.push((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*15);
 
-                // 招财猫配色：红/金/白
                 const rand = Math.random();
-                if (rand > 0.8) { colors.push(1.0, 0.2, 0.2); sizes.push(0.09); } // 红
-                else if (rand > 0.5) { colors.push(1.0, 0.84, 0.0); sizes.push(0.07); } // 金
-                else { colors.push(1.0, 1.0, 0.9); sizes.push(0.05); } // 白
+                if (rand > 0.8) { colors.push(1.0, 0.2, 0.2); sizes.push(0.09); } 
+                else if (rand > 0.5) { colors.push(1.0, 0.84, 0.0); sizes.push(0.07); } 
+                else { colors.push(1.0, 1.0, 0.9); sizes.push(0.05); } 
             }
             return { positions, targetPositions, colors, sizes };
         }
 
-        // === 4. 粒子系统构建 ===
         function createParticleSystem(pos, target, col, size) {
             particleGeo = new THREE.BufferGeometry();
             particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -250,7 +186,6 @@
             particleGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
             particleGeo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
 
-            // 文字目标
             const textTargets = createTextTargets(CONFIG.wishText);
             const textAttr = [];
             for(let i=0; i<pos.length/3; i++) {
@@ -269,18 +204,7 @@
             mainGroup.add(particles);
         }
 
-        function createFallbackCube() {
-            const count = 3000;
-            const pos = [], target = [], col = [], size = [];
-            for(let i=0; i<count; i++) {
-                pos.push((Math.random()-0.5)*10, (Math.random()-0.5)*10, (Math.random()-0.5)*10);
-                target.push((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3);
-                col.push(1, 0.8, 0); size.push(0.06);
-            }
-            createParticleSystem(pos, target, col, size);
-        }
-
-        // === 5. 辅助纹理 ===
+        // === 辅助 ===
         function createGlowTexture() {
             const c = document.createElement('canvas'); c.width=32; c.height=32;
             const ctx = c.getContext('2d');
@@ -310,31 +234,23 @@
             return targets;
         }
 
-        // === 6. 动画循环 ===
         function animate() {
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
 
-            if (!state.modelLoaded) return;
-
             if (!state.isExploded) {
-                // 平滑插值 (Lerp)
                 state.currentRotationY += (state.targetRotationY - state.currentRotationY) * 0.1;
                 state.currentScale += (state.targetScale - state.currentScale) * 0.08;
-
                 mainGroup.rotation.y = state.currentRotationY + time * 0.1;
                 mainGroup.scale.setScalar(state.currentScale);
 
-                // 粒子聚合
                 const pos = particleGeo.attributes.position.array;
                 const target = particleGeo.attributes.target.array;
                 for(let i=0; i<pos.length; i++) pos[i] += (target[i] - pos[i]) * 0.08;
                 particleGeo.attributes.position.needsUpdate = true;
 
-                // 蓄力条动画
                 handleCharge();
             } else {
-                // 文字重组
                 const pos = particleGeo.attributes.position.array;
                 const textT = particleGeo.attributes.textTarget.array;
                 for(let i=0; i<pos.length; i+=3) {
@@ -354,37 +270,30 @@
             const status = document.getElementById('gesture-text');
 
             if (state.currentGesture === 'VICTORY') {
-                state.victoryCharge += 1.0; // 减慢充能速度
+                state.victoryCharge += 1.0; 
                 container.style.opacity = 1;
-                
-                // 震动特效
                 mainGroup.position.x = (Math.random()-0.5) * 0.05;
                 mainGroup.position.y = (Math.random()-0.5) * 0.05;
                 
                 if (state.victoryCharge >= 100) {
                     state.isExploded = true;
                     document.getElementById('ui-layer').style.display = 'none';
-                    // 炸开一下
                     const pos = particleGeo.attributes.position.array;
                     for(let i=0; i<pos.length; i++) pos[i] += (Math.random()-0.5) * 5;
                 }
             } else {
-                state.victoryCharge = Math.max(0, state.victoryCharge - 2.5); // 快速衰减
+                state.victoryCharge = Math.max(0, state.victoryCharge - 2.5);
                 if(state.victoryCharge <= 0) container.style.opacity = 0;
                 mainGroup.position.set(0,0,0);
             }
             bar.style.width = state.victoryCharge + "%";
         }
 
-        // === 7. 手势识别 (防误触版) ===
+        // === 手势识别 (防误触版) ===
         function detectGesture(lm) {
-            // 计算基准：手掌大小
             const palmSize = Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
-
-            // 辅助：判断手指伸直
             const isExtended = (tip, pip) => {
                 const dist = Math.hypot(lm[tip].x - lm[0].x, lm[tip].y - lm[0].y);
-                // 阈值：指尖距离必须 > 手掌大小 * 1.5 (避免握拳时误判)
                 return dist > palmSize * CONFIG.spreadRatio;
             };
 
@@ -396,12 +305,9 @@
 
             const openCount = [thumbOpen, indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
 
-            // 状态机
-            if (openCount <= 1) return 'FIST'; // 握拳
-            if (openCount >= 4) return 'OPEN'; // 张开
-            // 剪刀手：食指中指伸直，无名指小指弯曲
+            if (openCount <= 1) return 'FIST';
+            if (openCount >= 4) return 'OPEN';
             if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) return 'VICTORY';
-            
             return 'NEUTRAL';
         }
 
@@ -416,32 +322,23 @@
                     state.handDetected = true;
                     state.currentGesture = detectGesture(lm);
                     
-                    // UI反馈
                     const icon = document.getElementById('gesture-icon');
                     const text = document.getElementById('gesture-text');
                     
-                    // 逻辑映射
                     if (state.currentGesture === 'FIST') {
-                        state.targetScale = 1.5; // 拉近
-                        icon.innerText = "✊"; text.innerText = "抓取拉近";
+                        state.targetScale = 1.5; icon.innerText = "✊"; text.innerText = "抓取拉近";
                     } else if (state.currentGesture === 'OPEN') {
-                        state.targetScale = 0.8; // 推远
-                        icon.innerText = "🖐"; text.innerText = "张开推远";
+                        state.targetScale = 0.8; icon.innerText = "🖐"; text.innerText = "张开推远";
                     } else if (state.currentGesture === 'VICTORY') {
                         icon.innerText = "✌️"; text.innerText = "蓄力变身...";
                     } else {
-                        state.targetScale = 1.0;
-                        icon.innerText = "✋"; text.innerText = "控制中";
+                        state.targetScale = 1.0; icon.innerText = "✋"; text.innerText = "控制中";
                     }
-
-                    // 旋转 (始终生效)
                     const palmX = lm[9].x; 
                     state.targetRotationY = (palmX - 0.5) * 3;
-
                 } else {
                     state.handDetected = false;
-                    state.targetRotationY = 0;
-                    state.targetScale = 1;
+                    state.targetRotationY = 0; state.targetScale = 1;
                     document.getElementById('gesture-icon').innerText = "👀";
                     document.getElementById('gesture-text').innerText = "寻找手势...";
                 }
