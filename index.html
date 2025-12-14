@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>AR 招财猫 2025</title>
 
-  <!-- MediaPipe（普通 script，非模块） -->
+  <!-- MediaPipe（非模块脚本） -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" defer></script>
+
+  <!-- Three.js 以及 GLTFLoader（全局形式，不用 import） -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
 
   <style>
     body {
@@ -159,28 +163,24 @@
     <div style="margin-top: 14px;">加载招财猫模型中...</div>
   </div>
 
-  <!-- 隐藏图片资产（暂时不用，只是预留） -->
+  <!-- 隐藏图片资产（预留） -->
   <div style="display:none">
     <img id="img-santa" src="./santa.png" alt="santa">
     <img id="img-tree" src="./tree.png" alt="tree">
   </div>
 
-  <!-- Three.js + GLTFLoader 模块脚本 -->
-  <script type="module">
-    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js";
-    import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/loaders/GLTFLoader.js";
-
+  <!-- 主逻辑脚本：不使用 import，不使用 type="module" -->
+  <script>
     let scene, camera, renderer;
     let catModel = null;
     let targetScale = 1.0;
     let targetRotationY = 0;
 
-    // ========= Three.js 初始化 =========
     function initThree() {
       const canvas = document.getElementById("three-canvas");
 
       renderer = new THREE.WebGLRenderer({
-        canvas,
+        canvas: canvas,
         antialias: true,
         alpha: true,
       });
@@ -198,7 +198,6 @@
       );
       camera.position.set(0, 1.2, 6);
 
-      // 环境光 + 平行光
       const ambient = new THREE.AmbientLight(0xffffff, 0.6);
       scene.add(ambient);
 
@@ -207,7 +206,6 @@
       dir.castShadow = true;
       scene.add(dir);
 
-      // 地面轻微反光
       const groundGeo = new THREE.PlaneGeometry(15, 15);
       const groundMat = new THREE.MeshStandardMaterial({
         color: 0x111111,
@@ -223,12 +221,11 @@
       animate();
     }
 
-    // ========= 加载招财猫 GLB 模型 =========
     function loadCatModel() {
-      const loader = new GLTFLoader();
+      const loader = new THREE.GLTFLoader();
       loader.load(
         "./cutecat01.glb",
-        (gltf) => {
+        function (gltf) {
           catModel = gltf.scene;
           catModel.scale.set(2, 2, 2);
           catModel.position.set(0, -0.8, 0);
@@ -236,39 +233,41 @@
 
           const loading = document.getElementById("loading");
           loading.style.opacity = "0";
-          setTimeout(() => (loading.style.display = "none"), 300);
+          setTimeout(function () {
+            loading.style.display = "none";
+          }, 300);
         },
         undefined,
-        (error) => {
+        function (error) {
           console.error("模型加载失败：", error);
-          alert("❌ 模型加载失败，请确认 cutecat01.glb 是否存在、名字是否完全一致。");
+          alert("❌ 模型加载失败，请确认 cutecat01.glb 是否存在、文件名完全一致。");
         }
       );
     }
 
-    // ========= 动画循环 =========
     function animate() {
       requestAnimationFrame(animate);
 
       if (catModel) {
-        // 平滑缩放
         const currentScale = catModel.scale.x;
         const nextScale = currentScale + (targetScale - currentScale) * 0.12;
         catModel.scale.set(nextScale, nextScale, nextScale);
 
-        // 平滑旋转
         catModel.rotation.y += (targetRotationY - catModel.rotation.y) * 0.08;
       }
 
       renderer.render(scene, camera);
     }
 
-    // ========= 手势识别逻辑 =========
     function detectGesture(landmarks) {
-      const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+      const dist = function (a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      };
       const palmSize = dist(landmarks[0], landmarks[9]);
 
-      const isFingerOpen = (tipIndex) => dist(landmarks[tipIndex], landmarks[0]) > palmSize * 1.1;
+      const isFingerOpen = function (tipIndex) {
+        return dist(landmarks[tipIndex], landmarks[0]) > palmSize * 1.1;
+      };
 
       const indexOpen = isFingerOpen(8);
       const middleOpen = isFingerOpen(12);
@@ -283,13 +282,14 @@
       return "NEUTRAL";
     }
 
-    // ========= MediaPipe Hands & Camera =========
-    window.onload = () => {
+    window.onload = function () {
       initThree();
 
       const videoEl = document.getElementById("input-video");
       const hands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        locateFile: function (file) {
+          return "https://cdn.jsdelivr.net/npm/@mediapipe/hands/" + file;
+        },
       });
 
       hands.setOptions({
@@ -302,7 +302,7 @@
       const iconEl = document.getElementById("gesture-icon");
       const textEl = document.getElementById("gesture-text");
 
-      hands.onResults((results) => {
+      hands.onResults(function (results) {
         if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
           iconEl.innerText = "👀";
           textEl.innerText = "正在寻找你的手势...";
@@ -314,8 +314,7 @@
         const lm = results.multiHandLandmarks[0];
         const gesture = detectGesture(lm);
 
-        // 根据手心 x 位置微调招财猫朝向
-        const palmX = lm[9].x; // 0~1
+        const palmX = lm[9].x;
         const offset = (palmX - 0.5) * 1.5;
 
         if (gesture === "FIST") {
@@ -332,8 +331,7 @@
           iconEl.innerText = "✌️";
           textEl.innerText = "Victory：让招财猫转起来";
           targetScale = 1.2;
-          // 让它持续慢慢旋转一圈圈
-          targetRotationY = catModel ? catModel.rotation.y + 0.3 : 0.3;
+          targetRotationY = (catModel ? catModel.rotation.y : 0) + 0.3;
         } else {
           iconEl.innerText = "✋";
           textEl.innerText = "保持姿势即可";
@@ -343,7 +341,7 @@
       });
 
       const cam = new Camera(videoEl, {
-        onFrame: async () => {
+        onFrame: async function () {
           await hands.send({ image: videoEl });
         },
         width: 640,
@@ -352,7 +350,7 @@
 
       cam.start();
 
-      window.addEventListener("resize", () => {
+      window.addEventListener("resize", function () {
         if (!camera || !renderer) return;
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
