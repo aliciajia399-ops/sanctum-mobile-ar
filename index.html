@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>AR 招财猫 2025</title>
 
-  <!-- MediaPipe -->
+  <!-- MediaPipe（普通 script，非模块） -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" defer></script>
@@ -15,20 +15,22 @@
       margin: 0;
       padding: 0;
       overflow: hidden;
-      background: black;
-      font-family: "Microsoft YaHei", sans-serif;
+      background: #000;
+      font-family: "Microsoft YaHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
+    /* 摄像头小窗 */
     #input-video {
       position: fixed;
       top: 16px;
       right: 16px;
-      width: 100px;
+      width: 110px;
       border-radius: 10px;
-      border: 2px solid rgba(255, 215, 0, 0.5);
+      border: 2px solid rgba(255, 215, 0, 0.6);
       transform: scaleX(-1);
       z-index: 20;
-      opacity: 0.8;
+      opacity: 0.85;
+      background: #111;
     }
 
     #three-canvas {
@@ -52,39 +54,42 @@
 
     #status-pill {
       margin-top: 40px;
-      padding: 8px 20px;
-      border-radius: 30px;
-      background: rgba(20, 20, 20, 0.8);
-      border: 1px solid rgba(255, 215, 0, 0.4);
+      padding: 8px 22px;
+      border-radius: 32px;
+      background: rgba(12, 12, 12, 0.9);
+      border: 1px solid rgba(255, 215, 0, 0.5);
       color: #ffd700;
-      font-weight: bold;
+      font-weight: 600;
       font-size: 14px;
       display: flex;
       gap: 10px;
       align-items: center;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
     }
 
     #guide-panel {
       position: absolute;
-      bottom: 40px;
+      bottom: 38px;
       display: flex;
-      gap: 20px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 12px 24px;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      gap: 18px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 12px 26px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
     }
 
     .guide-item {
       text-align: center;
-      color: rgba(255, 255, 255, 0.8);
+      color: rgba(255, 255, 255, 0.85);
       font-size: 12px;
+      line-height: 1.3;
     }
 
     .guide-icon {
       font-size: 24px;
       display: block;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
     #loading {
@@ -93,7 +98,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: black;
+      background: #000;
       z-index: 200;
       display: flex;
       flex-direction: column;
@@ -103,11 +108,11 @@
     }
 
     .spinner {
-      width: 40px;
-      height: 40px;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
       border: 3px solid #333;
       border-top: 3px solid #ffd700;
-      border-radius: 50%;
       animation: spin 1s linear infinite;
     }
 
@@ -119,42 +124,58 @@
 </head>
 
 <body>
+  <!-- 摄像头画面 -->
   <video id="input-video" playsinline></video>
+
+  <!-- Three.js 画布 -->
   <canvas id="three-canvas"></canvas>
 
+  <!-- UI 层 -->
   <div id="ui-layer">
     <div id="status-pill">
       <span id="gesture-icon">👀</span>
-      <span id="gesture-text">寻找手势...</span>
+      <span id="gesture-text">正在寻找你的手势...</span>
     </div>
 
     <div id="guide-panel">
-      <div class="guide-item"><span class="guide-icon">✊</span>抓取放大</div>
-      <div class="guide-item"><span class="guide-icon">🖐</span>张开缩小</div>
-      <div class="guide-item"><span class="guide-icon">✌️</span>旋转模式</div>
+      <div class="guide-item">
+        <span class="guide-icon">✊</span>
+        抓取放大
+      </div>
+      <div class="guide-item">
+        <span class="guide-icon">🖐</span>
+        张开缩小
+      </div>
+      <div class="guide-item">
+        <span class="guide-icon">✌️</span>
+        旋转招财猫
+      </div>
     </div>
   </div>
 
+  <!-- Loading 蒙层 -->
   <div id="loading">
     <div class="spinner"></div>
-    <div style="margin-top:15px">加载招财猫模型中...</div>
+    <div style="margin-top: 14px;">加载招财猫模型中...</div>
   </div>
 
-  <!-- 隐藏图片资产 -->
+  <!-- 隐藏图片资产（暂时不用，只是预留） -->
   <div style="display:none">
-    <img id="img-santa" src="./santa.png">
-    <img id="img-tree" src="./tree.png">
+    <img id="img-santa" src="./santa.png" alt="santa">
+    <img id="img-tree" src="./tree.png" alt="tree">
   </div>
 
-  <!-- THREE + GLTFLoader -->
+  <!-- Three.js + GLTFLoader 模块脚本 -->
   <script type="module">
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js";
     import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/loaders/GLTFLoader.js";
 
-    let scene, camera, renderer, catModel;
-    let targetScale = 1;
+    let scene, camera, renderer;
+    let catModel = null;
+    let targetScale = 1.0;
     let targetRotationY = 0;
 
+    // ========= Three.js 初始化 =========
     function initThree() {
       const canvas = document.getElementById("three-canvas");
 
@@ -167,7 +188,7 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
       scene = new THREE.Scene();
-      scene.background = new THREE.Color("#000");
+      scene.background = new THREE.Color("#000000");
 
       camera = new THREE.PerspectiveCamera(
         45,
@@ -175,17 +196,34 @@
         0.1,
         100
       );
-      camera.position.set(0, 1, 6);
+      camera.position.set(0, 1.2, 6);
 
-      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      // 环境光 + 平行光
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+
       const dir = new THREE.DirectionalLight(0xffffff, 1.2);
       dir.position.set(3, 5, 5);
+      dir.castShadow = true;
       scene.add(dir);
+
+      // 地面轻微反光
+      const groundGeo = new THREE.PlaneGeometry(15, 15);
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+        roughness: 0.9,
+        metalness: 0.1,
+      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -1.5;
+      scene.add(ground);
 
       loadCatModel();
       animate();
     }
 
+    // ========= 加载招财猫 GLB 模型 =========
     function loadCatModel() {
       const loader = new GLTFLoader();
       loader.load(
@@ -193,108 +231,134 @@
         (gltf) => {
           catModel = gltf.scene;
           catModel.scale.set(2, 2, 2);
-          catModel.position.set(0, -1, 0);
+          catModel.position.set(0, -0.8, 0);
           scene.add(catModel);
 
-          document.getElementById("loading").style.display = "none";
+          const loading = document.getElementById("loading");
+          loading.style.opacity = "0";
+          setTimeout(() => (loading.style.display = "none"), 300);
         },
         undefined,
-        (err) => {
-          alert("❌ 模型加载失败，请检查 cutecat01.glb 是否存在！");
-          console.error(err);
+        (error) => {
+          console.error("模型加载失败：", error);
+          alert("❌ 模型加载失败，请确认 cutecat01.glb 是否存在、名字是否完全一致。");
         }
       );
     }
 
+    // ========= 动画循环 =========
     function animate() {
       requestAnimationFrame(animate);
 
       if (catModel) {
+        // 平滑缩放
+        const currentScale = catModel.scale.x;
+        const nextScale = currentScale + (targetScale - currentScale) * 0.12;
+        catModel.scale.set(nextScale, nextScale, nextScale);
+
+        // 平滑旋转
         catModel.rotation.y += (targetRotationY - catModel.rotation.y) * 0.08;
-        const s = catModel.scale.x;
-        const ns = s + (targetScale - s) * 0.1;
-        catModel.scale.set(ns, ns, ns);
       }
+
       renderer.render(scene, camera);
     }
 
-    function detectGesture(lm) {
+    // ========= 手势识别逻辑 =========
+    function detectGesture(landmarks) {
       const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-      const palm = dist(lm[0], lm[9]);
-      const isOpen = (tip) => dist(lm[tip], lm[0]) > palm * 1.1;
+      const palmSize = dist(landmarks[0], landmarks[9]);
 
-      const index = isOpen(8);
-      const middle = isOpen(12);
-      const ring = isOpen(16);
-      const pinky = isOpen(20);
+      const isFingerOpen = (tipIndex) => dist(landmarks[tipIndex], landmarks[0]) > palmSize * 1.1;
 
-      const openCount = [index, middle, ring, pinky].filter(Boolean).length;
+      const indexOpen = isFingerOpen(8);
+      const middleOpen = isFingerOpen(12);
+      const ringOpen = isFingerOpen(16);
+      const pinkyOpen = isFingerOpen(20);
+
+      const openCount = [indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
 
       if (openCount === 0) return "FIST";
       if (openCount >= 3) return "OPEN";
-      if (index && middle && !ring) return "VICTORY";
+      if (indexOpen && middleOpen && !ringOpen) return "VICTORY";
       return "NEUTRAL";
     }
 
+    // ========= MediaPipe Hands & Camera =========
     window.onload = () => {
-      const video = document.getElementById("input-video");
+      initThree();
+
+      const videoEl = document.getElementById("input-video");
       const hands = new Hands({
-        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
       });
 
       hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
         minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.5,
       });
 
-      hands.onResults((res) => {
-        if (!res.multiHandLandmarks.length) {
-          document.getElementById("gesture-icon").innerText = "👀";
-          document.getElementById("gesture-text").innerText = "寻找手势...";
+      const iconEl = document.getElementById("gesture-icon");
+      const textEl = document.getElementById("gesture-text");
+
+      hands.onResults((results) => {
+        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+          iconEl.innerText = "👀";
+          textEl.innerText = "正在寻找你的手势...";
+          targetScale = 1.0;
+          targetRotationY = 0;
           return;
         }
 
-        const lm = res.multiHandLandmarks[0];
-        const g = detectGesture(lm);
+        const lm = results.multiHandLandmarks[0];
+        const gesture = detectGesture(lm);
 
-        const icon = document.getElementById("gesture-icon");
-        const text = document.getElementById("gesture-text");
+        // 根据手心 x 位置微调招财猫朝向
+        const palmX = lm[9].x; // 0~1
+        const offset = (palmX - 0.5) * 1.5;
 
-        if (g === "FIST") {
-          icon.innerText = "✊";
-          text.innerText = "抓取放大";
+        if (gesture === "FIST") {
+          iconEl.innerText = "✊";
+          textEl.innerText = "抓住招财猫：放大";
           targetScale = 1.6;
-        } else if (g === "OPEN") {
-          icon.innerText = "🖐";
-          text.innerText = "张开缩小";
+          targetRotationY = offset;
+        } else if (gesture === "OPEN") {
+          iconEl.innerText = "🖐";
+          textEl.innerText = "张开手掌：缩小";
           targetScale = 0.8;
-        } else if (g === "VICTORY") {
-          icon.innerText = "✌️";
-          text.innerText = "旋转模式";
-          targetRotationY = Math.sin(Date.now() * 0.001) * 2;
+          targetRotationY = offset;
+        } else if (gesture === "VICTORY") {
+          iconEl.innerText = "✌️";
+          textEl.innerText = "Victory：让招财猫转起来";
+          targetScale = 1.2;
+          // 让它持续慢慢旋转一圈圈
+          targetRotationY = catModel ? catModel.rotation.y + 0.3 : 0.3;
         } else {
-          icon.innerText = "✋";
-          text.innerText = "保持姿势";
+          iconEl.innerText = "✋";
+          textEl.innerText = "保持姿势即可";
           targetScale = 1.0;
+          targetRotationY = offset;
         }
       });
 
-      const cam = new Camera(video, {
-        onFrame: async () => await hands.send({ image: video }),
+      const cam = new Camera(videoEl, {
+        onFrame: async () => {
+          await hands.send({ image: videoEl });
+        },
         width: 640,
         height: 480,
       });
 
       cam.start();
-      initThree();
-    };
 
-    window.addEventListener("resize", () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+      window.addEventListener("resize", () => {
+        if (!camera || !renderer) return;
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    };
   </script>
 </body>
 </html>
