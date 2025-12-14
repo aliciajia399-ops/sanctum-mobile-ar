@@ -211,39 +211,31 @@
 
       if (catModel) {
         catModel.rotation.y += (targetRotationY - catModel.rotation.y) * 0.08;
-
         const s = catModel.scale.x;
         const ns = s + (targetScale - s) * 0.1;
         catModel.scale.set(ns, ns, ns);
       }
-
       renderer.render(scene, camera);
     }
 
-    // === 简化版手势识别 ===
     function detectGesture(lm) {
       const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
       const palm = dist(lm[0], lm[9]);
-
       const isOpen = (tip) => dist(lm[tip], lm[0]) > palm * 1.1;
 
-      const fingerStates = [
-        isOpen(8),
-        isOpen(12),
-        isOpen(16),
-        isOpen(20),
-      ];
-      const openCount = fingerStates.filter(Boolean).length;
+      const index = isOpen(8);
+      const middle = isOpen(12);
+      const ring = isOpen(16);
+      const pinky = isOpen(20);
+
+      const openCount = [index, middle, ring, pinky].filter(Boolean).length;
 
       if (openCount === 0) return "FIST";
       if (openCount >= 3) return "OPEN";
-      if (fingerStates[0] && fingerStates[1] && !fingerStates[2])
-        return "VICTORY";
-
+      if (index && middle && !ring) return "VICTORY";
       return "NEUTRAL";
     }
 
-    // === MediaPipe Hands ===
     window.onload = () => {
       const video = document.getElementById("input-video");
       const hands = new Hands({
